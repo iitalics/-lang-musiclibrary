@@ -8,6 +8,7 @@
   (struct (exn:fail:ffmpeg exn:fail)
     ([message string?]
      [continuation-marks continuation-mark-set?]
+     [args (listof (or/c string? bytes? path?))]
      [status-code exact-integer?]
      [stdout input-port?]
      [stderr input-port?])))
@@ -15,9 +16,12 @@
  ; exec-ffmpeg
  (contract-out
   [current-ffmpeg (parameter/c path?)]
-  [exec-ffmpeg ([listof (or/c string? bytes? path?)]
+  [exec-ffmpeg ((listof (or/c string? bytes? path?))
                 . -> .
                 (values input-port? input-port?))]))
+
+(require
+ racket/format)
 
 (module+ test
   (require rackunit racket/port racket/function))
@@ -31,7 +35,8 @@
 ;; (exn:fail:ffmpeg ... status-code stdout stderr)
 ;; status-code : (and exact-integer (not zero))
 ;; stdout, stderr : input-port
-(struct exn:fail:ffmpeg exn:fail [status-code stdout stderr])
+(struct exn:fail:ffmpeg exn:fail
+  [args status-code stdout stderr])
 
 ;; (exec-ffmpeg cmdline-args) : input-port input-port
 ;; cmdline-args : [listof string]
@@ -48,13 +53,22 @@
                   args)))
   (subprocess-wait sp)
   (define sc (subprocess-status sp))
-  (if (zero? sc)
-    (values stdout stderr)
-    (raise (exn:fail:ffmpeg (format "ffmpeg failed with status code: ~a" sc)
+  (unless (zero? sc)
+    (define msg
+      (~a "ffmpeg failed with status code: " sc
+          "\n  arguments:"
+          (for/fold ([acc ""])
+                    ([a (in-list args)])
+            (~a acc " " a))))
+
+    (raise (exn:fail:ffmpeg msg
                             (current-continuation-marks)
+                            args
                             sc
                             stdout
-                            stderr))))
+                            stderr)))
+  (values stdout stderr))
+
 
 ;; =======================================================================================
 
