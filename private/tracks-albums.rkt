@@ -1,6 +1,5 @@
 #lang racket/base
-(require
- racket/contract)
+(require racket/contract)
 
 (provide
  source? metadata? album? track?
@@ -124,7 +123,7 @@
              ([t  (in-list alb)])
      (set-add ts t))))
 
-;; ---------------------------------------------------------------------------------------
+;; =======================================================================================
 
 (module+ test
   (define t1 (make-track (string->path "a") (hasheq 'title "A") (string->path "A")))

@@ -15,9 +15,7 @@
  ; exec-ffmpeg
  (contract-out
   [current-ffmpeg (parameter/c path?)]
-  [exec-ffmpeg ([listof (or/c string?
-                              bytes?
-                              path?)]
+  [exec-ffmpeg ([listof (or/c string? bytes? path?)]
                 . -> .
                 (values input-port? input-port?))]))
 
@@ -58,15 +56,14 @@
                             stdout
                             stderr))))
 
-;; ---------------------------------------------------------------------------------------
+;; =======================================================================================
 
 (module+ test
   (define FFMPEG-VERSION-REGEX
     #px"^ffmpeg version .* Copyright \\(c\\) .* the FFmpeg developers")
 
   (let-values ([(stdout stderr) (exec-ffmpeg '("-version"))])
-    (check-pred (curry regexp-match? FFMPEG-VERSION-REGEX)
-                (port->string stdout))
+    (check-pred (curry regexp-match? FFMPEG-VERSION-REGEX) (port->string stdout))
     (check-equal? (port->string stderr) ""))
 
   (check-exn (λ (e)
