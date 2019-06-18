@@ -1,6 +1,7 @@
 #lang racket/base
 (require
- "private/tracks-albums.rkt")
+ "private/tracks-albums.rkt"
+ racket/list)
 
 (module+ test
   (require rackunit racket/port racket/function))
@@ -48,15 +49,24 @@
 (define current-output-directory
   (make-parameter (build-path "./musiclibrary")))
 
+;; (track->ffmpeg-args trk) : [listof (or string path)]
+;; trk : track
+(define (track->ffmpeg-args trk)
+  (define metadata-args
+    (append* (for/list ([(k v) (in-hash (track-meta trk))])
+               (list "-metadata:g" (format "~a=~a" k v)))))
+  `("-y"
+    "-i"
+    ,(track-audio-src trk)
+    ,@metadata-args
+    ,(build-path (current-output-directory)
+                 (track-output-path trk))))
+
 ;; (process-track trk) : void
 ;; trk : track
 (define (process-track trk)
   (define-values [code _stdout _stderr]
-    (exec-ffmpeg `("-y"
-                   "-i"
-                   ,(track-audio-src trk)
-                   ,(build-path (current-output-directory)
-                                (track-output-path trk)))))
+    (exec-ffmpeg (track->ffmpeg-args trk)))
   (unless (zero? code)
     (error 'process-track
            (format "ffmpeg returned status code: ~a" code))))
@@ -103,19 +113,34 @@
     (call/test-musiclibrary (λ () body ...)))
 
   ;; -----------------------------------
+  ;; Simple unit tests
 
   (define test-audio-path
     (build-path (current-directory)
                 "test-audio.ogg"))
+
+  (define test-track
+    (track #:audio-src test-audio-path
+           #:output-path "test-audio.mp3"
+           'title "Foo"))
+
+  (check-equal?
+   (track->ffmpeg-args test-track)
+   `("-y"
+     "-i"
+     ,test-audio-path
+     "-metadata:g" "title=Foo"
+     ,(build-path (current-output-directory) "test-audio.mp3")))
+
+  ;; -----------------------------------
+  ;; IO performing tests
 
   (check-pred file-exists? test-audio-path
               "example audio file (test-audio.ogg) must exist")
 
   (with-test-musiclibrary
     ; TODO: check metadata?? how??
-    (process-track (track #:audio-src test-audio-path
-                          #:output-path "test-audio.mp3"
-                          'title "Foo"))
+    (process-track test-track)
     (check-equal?
      (directory-list (current-output-directory))
      (list (build-path "test-audio.mp3")))))
