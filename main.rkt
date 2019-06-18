@@ -90,6 +90,18 @@
 
   (check-equal?
    (with-generate-tracks
+     (queue-track! t1))
+   (seteq t1))
+
+  (check-equal?
+   (with-generate-tracks
+     (queue-track! t1)
+     (with-generate-tracks
+       (queue-track! t2)))
+   (seteq t1))
+
+  (check-equal?
+   (with-generate-tracks
      (queue-track! t1)
      (queue-album! (album t2 t3))
      (queue-track! t3))
