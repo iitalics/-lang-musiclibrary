@@ -14,10 +14,16 @@
 (define current-ffmpeg
   (make-parameter (build-path "/usr/bin/ffmpeg")))
 
-;; (exec-ffmpeg cmdline-args) : exact-integer input-port input-port
+;; (exn:fail:ffmpeg ... status-code stdout stderr)
+;; status-code : (and exact-integer (not zero))
+;; stdout, stderr : input-port
+(struct exn:fail:ffmpeg exn:fail [status-code stdout stderr])
+
+;; (exec-ffmpeg cmdline-args) : input-port input-port
 ;; cmdline-args : [listof string]
 ;; --
 ;; returns (values status-code stdout stderr)
+;; raises exn:fail:ffmpeg if process returns non-zero status
 (define (exec-ffmpeg args)
   (define-values [sp stdout stdin stderr]
     (apply subprocess
@@ -27,19 +33,31 @@
                   (current-ffmpeg)
                   args)))
   (subprocess-wait sp)
-  (values (subprocess-status sp)
-          stdout
-          stderr))
+  (define sc (subprocess-status sp))
+  (if (zero? sc)
+    (values stdout stderr)
+    (raise (exn:fail:ffmpeg (format "ffmpeg failed with status code: ~a" sc)
+                            (current-continuation-marks)
+                            sc
+                            stdout
+                            stderr))))
 
 (module+ test
   (define FFMPEG-VERSION-REGEX
     #px"^ffmpeg version .* Copyright \\(c\\) .* the FFmpeg developers")
 
-  (let-values ([(code stdout stderr) (exec-ffmpeg '("-version"))])
-    (check-equal? code 0)
+  (let-values ([(stdout stderr) (exec-ffmpeg '("-version"))])
     (check-pred (curry regexp-match? FFMPEG-VERSION-REGEX)
                 (port->string stdout))
-    (check-equal? (port->string stderr) "")))
+    (check-equal? (port->string stderr) ""))
+
+  (check-exn (λ (e)
+               (and (exn:fail:ffmpeg? e)
+                    (regexp-match #px"Unrecognized option 'notathing'"
+                                  (port->string
+                                   (exn:fail:ffmpeg-stderr e)))))
+             (λ ()
+               (exec-ffmpeg '("-notathing")))))
 
 ;; ---------------------------------------------------------------------------------------
 ;; Processing tracks
@@ -64,12 +82,12 @@
 
 ;; (process-track trk) : void
 ;; trk : track
+;; --
+;; raises exn:fail:ffmpeg
 (define (process-track trk)
-  (define-values [code _stdout _stderr]
+  (define-values [stdout stderr]
     (exec-ffmpeg (track->ffmpeg-args trk)))
-  (unless (zero? code)
-    (error 'process-track
-           (format "ffmpeg returned status code: ~a" code))))
+  (void))
 
 ;; =======================================================================================
 
@@ -98,7 +116,6 @@
         (when (directory-exists? (current-output-directory))
           (recursively-delete-directory (current-output-directory))))
 
-      (del)
       (make-directory (current-output-directory))
       (define result
         (with-handlers ([exn?
