@@ -14,6 +14,11 @@
  track-meta
  track-output-path
  (contract-out
+  [rename track*
+          track
+          ((#:audio-src source?
+            #:output-path path-string?)
+           #:rest any/c . ->* . track?)]
   [make-track (source? metadata? path? . -> . track?)]
   [track-title (track? . -> . string?)])
  ; ---
@@ -68,6 +73,14 @@
   (hash-ref (track-meta t)
             'title
             "(no title)"))
+
+;; ... -> track
+(define (track* #:audio-src as
+                #:output-path op
+                . meta-args)
+  (make-track as
+              (apply hasheq meta-args)
+              (build-path op)))
 
 ;; track ... -> album
 (define (album . ts)
