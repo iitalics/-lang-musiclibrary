@@ -1,8 +1,13 @@
 #lang racket/base
+(provide
+ (all-from-out "private/tracks-albums.rkt")
+ musiclibrary)
+
 (require
  "private/tracks-albums.rkt"
  "private/ffmpeg.rkt"
- racket/list)
+ racket/list
+ racket/set)
 
 (module+ test
   (require rackunit))
@@ -51,6 +56,26 @@
     (exec-ffmpeg (track->ffmpeg-args trk)))
   (void))
 
+;; -> void
+(define (process-queued-tracks)
+  (set-for-each (current-tracks-to-generate)
+                process-track))
+
+;; ---------------------------------------------------------------------------------------
+;; Entry point
+;; --------------------
+
+;; (musiclibrary body ...)
+(define-syntax-rule (musiclibrary body ...)
+  (musiclibrary-proc (λ () body ...)))
+
+(define (musiclibrary-proc f)
+  (void
+   (with-generate-tracks
+     (recursively-make-directory (current-output-directory))
+     (f)
+     (process-queued-tracks))))
+
 ;; =======================================================================================
 
 (module+ test
@@ -96,7 +121,7 @@
 
   (define test-audio-path
     (build-path (current-directory)
-                "test-audio.ogg"))
+                "./example/test-audio.ogg"))
 
   (define test-track
     (track #:audio-src test-audio-path
