@@ -8,6 +8,20 @@
   (require rackunit))
 
 ;; ---------------------------------------------------------------------------------------
+;; Utils
+;; --------------------
+
+;; (recursively-make-directory path) : void
+;; path : path-string
+(define (recursively-make-directory path)
+  (let loop ([path (simplify-path path)])
+    (define-values [root _final _must-be-dir?] (split-path path))
+    (unless (directory-exists? path)
+      (when (path? root)
+        (loop root))
+      (make-directory path))))
+
+;; ---------------------------------------------------------------------------------------
 ;; Processing tracks
 ;; --------------------
 
