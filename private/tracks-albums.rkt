@@ -37,6 +37,10 @@
           ((source? time-value?) ; src start
            ((or/c time-value? #f)) ; end
            . ->* . audio-clip?)]
+  [make-audio-clip (source? ; src
+                    exact-nonnegative-integer? ; start
+                    (or/c exact-nonnegative-integer? #f) ;end
+                    . -> . audio-clip?)]
   [audio-clip-source   (audio-clip? . -> . source?)]
   [audio-clip-start/ms (audio-clip? . -> . exact-nonnegative-integer?)]
   [audio-clip-start    (audio-clip? . -> . flonum?)]
