@@ -5,18 +5,28 @@
  ; ---
  ; metadata
  metadata-key? metadata-entry?
- +title +album +track-num
+ +title +album +track-num +artist
  (contract-out
   [metadata-key->symbol (metadata-key? symbol? . -> . (or/c symbol? #f))]
   [meta:      (metadata-key? string?      . -> . metadata-entry?)]
   [title:     (string?                    . -> . metadata-entry?)]
   [album:     (string?                    . -> . metadata-entry?)]
+  [artist:    (string?                    . -> . metadata-entry?)]
   [track-num: (exact-nonnegative-integer? . -> . metadata-entry?)])
  ; ---
  ; album
  album?
+ in-album-tracks
  (contract-out
-  [album (() #:rest (listof track?) . ->* . album?)])
+  [rename album* album
+          ((string?)
+           #:rest (listof (or/c metadata-entry?
+                                track?
+                                (listof track?)))
+           . ->* . album?)]
+  [album/single (track? . -> . album?)]
+  [album-title (album? . -> . string?)]
+  [album-tracks (album? . -> . (listof track?))])
  ; ---
  ; track
  track? source?
@@ -34,10 +44,23 @@
   [track-number (track? . -> . (or/c exact-integer? #f))]))
 
 (require
- racket/set)
+ (only-in racket/hash hash-union))
 
 (module+ test
   (require rackunit racket/port))
+
+;; ---------------------------------------------------------------------------------------
+;; Utils
+;; --------------------
+
+(define (rev-append xs/rev ys)
+  (foldl cons ys xs/rev))
+
+(define (left-biased x y) x)
+
+(module+ test
+  (check-equal? (rev-append '(3 2 1) '(4 5 6))
+                '(1 2 3 4 5 6)))
 
 ;; ---------------------------------------------------------------------------------------
 ;; Metadata
@@ -69,6 +92,7 @@
 (define-metadata-keys metadata-key->symbol
   [+title     ([mp3 'title] [ogg 'TITLE])]
   [+album     ([mp3 'album] [ogg 'ALBUM])]
+  [+artist    ([mp3 'album_artist] [ogg 'ARTIST])]
   [+track-num ([mp3 'track] [ogg 'TRACKNUMBER])])
 
 (struct metadata-entry [key value]
@@ -82,6 +106,7 @@
 
 (define (title: s)     (meta: +title s))
 (define (album: s)     (meta: +album s))
+(define (artist: s)    (meta: +artist s))
 (define (track-num: n) (meta: +track-num (format "~a" n)))
 
 (module+ test
@@ -92,17 +117,8 @@
   (check-equal? (metadata-key->symbol +title 'flac) #f))
 
 ;; ---------------------------------------------------------------------------------------
-;; Albums and tracks
+;; Tracks
 ;; --------------------
-
-;; album ::= [listof track]
-(define (album? x)
-  (and (list? x)
-       (andmap track? x)))
-
-;; track ... -> album
-(define (album . ts)
-  ts)
 
 ;; source ::= path
 (define (source? x)
@@ -114,6 +130,7 @@
 (struct track [audio-src
                output-path
                meta]
+  #:transparent
   #:extra-constructor-name make-track
   #:methods gen:custom-write
   [(define (write-proc t port mode)
@@ -152,13 +169,16 @@
   (cond [(track-metadata t +track-num) => string->number]
         [else #f]))
 
-;; =======================================================================================
+;; [hasheq metadata-key => string] track -> track
+(define (add-meta-to-track meta trk)
+  (struct-copy track trk
+               [meta (hash-union (track-meta trk) meta
+                                 #:combine left-biased)]))
+
+;; =====================================
 
 (module+ test
   (define P string->path)
-
-  ;; ---------------
-  ;; track
 
   (define t1 (track* #:audio (P "a") #:output (P "A") (title: "aaa")))
   (define t2 (track* #:audio (P "b") #:output (P "B") (title: "bbb")))
@@ -170,3 +190,99 @@
 
   (check-equal? (track-number t2) #f)
   (check-equal? (track-number t3) 4))
+
+;; ---------------------------------------------------------------------------------------
+;; Albums
+;; --------------------
+
+;; tracks : [listof track]
+;; meta : [hasheq metadata-key => string]
+(struct album [tracks meta]
+  #:transparent
+  #:extra-constructor-name make-album
+  #:methods gen:custom-write
+  [(define (write-proc alb port mode)
+     (fprintf port "#<album:~s (~a track~a)>"
+              (album-title alb)
+              (length (album-tracks alb))
+              (if ((list/c any/c) (album-tracks alb))
+                "" "s")))])
+
+;; track -> album
+(define (album/single t)
+  (album (list t) #hasheq()))
+
+;; (album title meta-or-tracks ...) : album
+;; title : string
+;; meta-or-tracks : (or metadata-entry track [listof track])
+(define (album* title . xs)
+
+  (define-values [meta tracks/rev]
+    (for/fold ([meta (hasheq +album title)]
+               [tracks/rev '()])
+              ([x (in-list xs)])
+      (cond
+        [(metadata-entry? x)
+         (values (hash-set meta
+                           (metadata-entry-key x)
+                           (metadata-entry-value x))
+                 tracks/rev)]
+
+        [(track? x)
+         (values meta (cons x tracks/rev))]
+
+        [(list? x)
+         (values meta (rev-append x tracks/rev))])))
+
+  (define tracks
+    (if (hash-empty? meta)
+      (reverse tracks/rev)
+      (for/fold ([ts '()]) ([t (in-list tracks/rev)])
+        (cons (add-meta-to-track meta t) ts))))
+
+  (make-album tracks meta))
+
+;; album -> string
+(define (album-title a)
+  (hash-ref (album-meta a) +album "(no title)"))
+
+;; album -> [sequenceof track]
+(define-syntax-rule (in-album-tracks a)
+  (in-list (album-tracks a)))
+
+;; =====================================
+
+(module+ test
+
+  (define t1+a (track* #:audio (P "a") #:output (P "A")
+                       (title: "aaa") (album: "ABC")))
+  (define t2+a (track* #:audio (P "b") #:output (P "B")
+                       (title: "bbb") (album: "ABC")))
+  (define t3+a (track* #:audio (P "c") #:output (P "C")
+                       (title: "ccc") (track-num: "4") (album: "ABC") (artist: "Alphabet")))
+
+  (define alb-1+2 (album* "ABC" t1 t2))
+  (define alb-3+r (album* "ABC" t3 (artist: "Alphabet")))
+
+  (check-equal?
+   alb-1+2
+   (make-album (list t1+a t2+a)
+               (hasheq +album "ABC")))
+
+  (check-equal?
+   alb-3+r
+   (make-album (list t3+a)
+               (hasheq +album "ABC"
+                       +artist "Alphabet")))
+
+  (check-equal?
+   (album* "ABC" t1 t2)
+   (album* "ABC" (list t1 t2)))
+
+  (check-equal?
+   (album* "ABC" t1 t2 t3)
+   (album* "ABC" (list t1 t2) t3))
+
+  (check-equal?
+   (album* "ABC" t1 t2 t3)
+   (album* "ABC" t1 (list t2 t3))))

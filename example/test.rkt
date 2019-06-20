@@ -11,7 +11,8 @@
          (title: "Test")
          (track-num: 1)))
 
-(album t)
+(album "The Test"
+       t)
 
 (begin
   (define useless 3)

@@ -75,7 +75,7 @@
     (for/list ([thing (in-list things)])
       (cond
         [(void? thing) #f]
-        [(track? thing) (album thing)]
+        [(track? thing) (album/single thing)]
         [(album? thing) thing]
         [else (error 'musiclibrary
                      (~a "invalid toplevel expression.\n"

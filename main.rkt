@@ -85,7 +85,7 @@
 (define (generate-music-library library)
   (recursively-make-directory (current-output-directory))
   (for* ([a (in-list library)]
-         [t (in-list a)])
+         [t (in-album-tracks a)])
     (printf "Processing: ~a\n" t)
     (process-track t)))
 
