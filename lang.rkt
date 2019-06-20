@@ -13,11 +13,6 @@
 
 ;; ---------------------------------------------------------------------------------------
 
-(module reader syntax/module-reader
-  musiclibrary/lang)
-
-;; ---------------------------------------------------------------------------------------
-
 ;; module-begin wrapper for #lang musiclibrary
 (define-syntax #%module-begin
   (syntax-parser
