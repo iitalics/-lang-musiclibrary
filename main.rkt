@@ -54,10 +54,13 @@
 ;; trk : track
 (define (track->ffmpeg-args trk)
   (define metadata-args
-    (for/fold ([args '()])
+    (for/fold ([args
+                ; -1 prevents metadata from input streams from automatically
+                ; being copied over
+                '("-map_metadata" "-1")])
               ([(k v) (in-track-metadata trk)])
       (define k-sym (metadata-key->symbol k (current-output-format)))
-      (list* "-metadata:g" (format "~a=~a" k-sym v) args)))
+      (append args (list "-metadata:g" (format "~a=~a" k-sym v)))))
   `("-y"
     "-i"
     ,(track-audio-src trk)
@@ -148,7 +151,7 @@
    `("-y"
      "-i"
      ,test-audio-path
-     "-metadata:g" "title=Foo"
+     "-map_metadata" "-1" "-metadata:g" "title=Foo"
      ,(build-path (current-output-directory) "test-audio.mp3")))
 
   (check-equal?
@@ -157,7 +160,7 @@
    `("-y"
      "-i"
      ,test-audio-path
-     "-metadata:g" "TITLE=Foo"
+     "-map_metadata" "-1" "-metadata:g" "TITLE=Foo"
      ,(build-path (current-output-directory) "test-audio.ogg")))
 
   ;; -----------------------------------
