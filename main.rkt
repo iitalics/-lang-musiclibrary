@@ -64,14 +64,16 @@
 (define (track->ffmpeg-args trk)
 
   (define-values [src src-extra-flags]
-    (match (track-audio-source trk)
-      [(audio-clip src start end)
-       (values src (list* "-ss" (format-ms start)
-                          (if end
-                            (list "-to" (format-ms end))
-                            '())))]
-      [(? source? src)
-       (values src '())]))
+    (let ([asrc (track-audio-source trk)])
+      (cond
+        [(audio-clip? asrc)
+         (define ss (audio-clip-start/ms asrc))
+         (define to (audio-clip-end/ms asrc))
+         (values (audio-clip-source asrc)
+                 (list* "-ss" (format-ms ss)
+                        (if to (list "-to" (format-ms to)) '())))]
+        [else
+         (values asrc '())])))
 
   (define metadata-args
     (for/fold ([args
@@ -177,14 +179,12 @@
      ,(build-path (current-output-directory) "test-audio.ogg")))
 
   (define test-track-clipped
-    (track #:audio (make-audio-clip test-audio-path
-                                    123 4200)
+    (track #:audio (audio-clip test-audio-path 0.123 '1:40)
            #:output "test-audio"
            (title: "Foo")))
 
   (define test-track-clipped*
-    (track #:audio (make-audio-clip test-audio-path
-                                    500 #f)
+    (track #:audio (audio-clip test-audio-path 0.5)
            #:output "test-audio"
            (title: "Foo")))
 
@@ -193,7 +193,7 @@
      (track->ffmpeg-args test-track-clipped))
    `("-y"
      "-ss" "0.123"
-     "-to" "4.2"
+     "-to" "100"
      "-i"
      ,test-audio-path
      "-map_metadata" "-1" "-metadata:g" "TITLE=Foo"

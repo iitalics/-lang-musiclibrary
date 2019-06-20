@@ -31,14 +31,17 @@
   [album-tracks (album? . -> . (listof track?))])
  ; ---
  ; audio
- source? audio-source?
+ source? audio-source? audio-clip?
  (contract-out
-  (struct audio-clip
-    ([source   source?]
-     [start/ms exact-nonnegative-integer?]
-     [end/ms   (or/c exact-nonnegative-integer? #f)]))
-  [audio-clip-start (audio-clip? . -> . flonum?)]
-  [audio-clip-end (audio-clip? . -> . (or/c flonum? #f))])
+  [rename audio-clip* audio-clip
+          ((source? time-value?) ; src start
+           ((or/c time-value? #f)) ; end
+           . ->* . audio-clip?)]
+  [audio-clip-source   (audio-clip? . -> . source?)]
+  [audio-clip-start/ms (audio-clip? . -> . exact-nonnegative-integer?)]
+  [audio-clip-start    (audio-clip? . -> . flonum?)]
+  [audio-clip-end/ms   (audio-clip? . -> . (or/c exact-nonnegative-integer? #f))]
+  [audio-clip-end      (audio-clip? . -> . (or/c flonum? #f))])
  ; ---
  ; track
  track?
@@ -56,6 +59,7 @@
   [track-number (track? . -> . (or/c exact-integer? #f))]))
 
 (require
+ "./time-value.rkt"
  (only-in racket/list range)
  (only-in racket/hash hash-union))
 
@@ -149,7 +153,16 @@
   #:transparent
   #:extra-constructor-name make-audio-clip)
 
-(define (ms->s x) (* x 0.001))
+;; (audio-clip* src start [end]) : audio-clip
+;; src : source
+;; start : time-value
+;; end : (or time-value #f)
+(define (audio-clip** src start [end #f])
+  (make-audio-clip src
+                   (time-value->milliseconds start)
+                   (and end (time-value->milliseconds end))))
+(define audio-clip*
+  (procedure-rename audio-clip** 'audio-clip))
 
 ;; audio-clip -> float
 (define (audio-clip-start ac)
@@ -160,13 +173,18 @@
   (cond [(audio-clip-end/ms ac) => ms->s]
         [else #f]))
 
+(define (ms->s x)
+  (* x 0.001))
+
 (module+ test
-  (define ac-1 (make-audio-clip (build-path "A") 500 3000))
-  (define ac-2 (make-audio-clip (build-path "B") 3000 #f))
-  (check-= (audio-clip-start ac-1) 0.5 0.000001)
-  (check-= (audio-clip-start ac-2) 3.0 0.000001)
-  (check-= (audio-clip-end ac-1) 3.0 0.000001)
-  (check-false (audio-clip-end ac-2)))
+  (define s (build-path "s"))
+  (check-equal? (audio-clip* s '0:00 '1:00)
+                (make-audio-clip s 0 60000))
+  (check-equal? (audio-clip* s '2:01)
+                (make-audio-clip s 121000 #f))
+  (check-= (audio-clip-start (audio-clip* s '2:01.5))   121.5 0.0001)
+  (check-= (audio-clip-end   (audio-clip* s 0 '2:01.5)) 121.5 0.0001)
+  (check-false (audio-clip-end (audio-clip* s '2:01.5))))
 
 ;; ---------------------------------------------------------------------------------------
 ;; Tracks
@@ -204,8 +222,8 @@
               (for/hash ([m-e (in-list m-es)])
                 (values (metadata-entry-key m-e)
                         (metadata-entry-value m-e)))))
-
-(define track* (procedure-rename track** 'track))
+(define track*
+  (procedure-rename track** 'track))
 
 ;; track -> string
 (define (track-title t)
@@ -279,7 +297,6 @@
    (list (add-meta-to-track (track-num: 2) t1)
          (add-meta-to-track (track-num: 3) t2)
          t3)))
-
 
 ;; ---------------------------------------------------------------------------------------
 ;; Albums
