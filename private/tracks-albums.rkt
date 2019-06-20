@@ -20,6 +20,7 @@
  (contract-out
   [rename album* album
           (((or/c string? #f)) ; title
+           (#:number? boolean?)
            #:rest
            (listof (or/c metadata-entry?
                          track?
@@ -45,6 +46,7 @@
   [track-number (track? . -> . (or/c exact-integer? #f))]))
 
 (require
+ (only-in racket/list range)
  (only-in racket/hash hash-union))
 
 (module+ test
@@ -165,16 +167,10 @@
   (or (track-metadata t +title)
       "(no title)"))
 
-;; track-number -> string
+;; track-number -> (or string #f)
 (define (track-number t)
   (cond [(track-metadata t +track-num) => string->number]
         [else #f]))
-
-;; [hasheq metadata-key => string] track -> track
-(define (add-meta-to-track meta trk)
-  (struct-copy track trk
-               [meta (hash-union (track-meta trk) meta
-                                 #:combine left-biased)]))
 
 ;; =====================================
 
@@ -183,14 +179,62 @@
 
   (define t1 (track* #:audio (P "a") #:output (P "A") (title: "aaa")))
   (define t2 (track* #:audio (P "b") #:output (P "B") (title: "bbb")))
-  (define t3 (track* #:audio (P "c") #:output (P "C") (title: "ccc") (track-num: "4")))
+  (define t3 (track* #:audio (P "c") #:output (P "C") (title: "ccc") (track-num: "1")))
 
   (check-equal?
    (with-output-to-string (λ () (display t2)))
    "#<track:\"bbb\">")
 
   (check-equal? (track-number t2) #f)
-  (check-equal? (track-number t3) 4))
+  (check-equal? (track-number t3) 1))
+
+;; ---------------------------------------------------------------------------------------
+;; Track helpers
+;; --------------------
+
+;; [hasheq metadata-key => string] track -> track
+(define (add-metas-to-track meta trk)
+  (struct-copy track trk
+               [meta (hash-union (track-meta trk) meta
+                                 #:combine left-biased)]))
+
+;; metadata-entry track -> track
+(define (add-meta-to-track m-e trk)
+  (struct-copy track trk
+               [meta (hash-set (track-meta trk)
+                               (metadata-entry-key m-e)
+                               (metadata-entry-value m-e))]))
+
+;; [listof track] -> [listof track]
+(define (number-tracks trks)
+  ; get available numbers: 1..n with existing track numbers removed
+  (define nums
+    (for/fold ([ns (range 1 (add1 (length trks)))])
+              ([trk (in-list trks)])
+      (cond
+        [(track-number trk) => (λ (n) (remove n ns))]
+        [else ns])))
+  (map (λ (trk)
+         (if (track-number trk)
+           trk
+           (begin0 (add-meta-to-track (track-num: (car nums)) trk)
+             (set! nums (cdr nums)))))
+       trks))
+
+(module+ test
+
+  (check-equal?
+   (number-tracks (list t1 t2))
+   (list (add-meta-to-track (track-num: 1) t1)
+         (add-meta-to-track (track-num: 2) t2)))
+
+  (check-equal?
+   ; t3 already occupies track #1
+   (number-tracks (list t1 t2 t3))
+   (list (add-meta-to-track (track-num: 2) t1)
+         (add-meta-to-track (track-num: 3) t2)
+         t3)))
+
 
 ;; ---------------------------------------------------------------------------------------
 ;; Albums
@@ -209,10 +253,11 @@
               (if ((list/c any/c) (album-tracks alb))
                 "" "s")))])
 
-;; (album title meta-or-tracks ...) : album
+;; (album title [#:number? num?] meta-or-tracks ...) : album
 ;; title : string
+;; num? : boolean
 ;; meta-or-tracks : (or metadata-entry track [listof track])
-(define (album* title . xs)
+(define (album* title #:number? [num? #t] . xs)
 
   (define-values [meta tracks/rev]
     (for/fold ([meta (if title
@@ -233,17 +278,19 @@
         [(list? x)
          (values meta (rev-append x tracks/rev))])))
 
-  (define tracks
-    (if (hash-empty? meta)
-      (reverse tracks/rev)
-      (for/fold ([ts '()]) ([t (in-list tracks/rev)])
-        (cons (add-meta-to-track meta t) ts))))
+  (let* ([tracks (reverse tracks/rev)]
+         [tracks (if (hash-empty? meta)
+                   tracks
+                   (map (λ (t) (add-metas-to-track meta t)) tracks))]
+         [tracks (if num?
+                   (number-tracks tracks)
+                   tracks)])
 
-  (make-album tracks meta))
+    (make-album tracks meta)))
 
 ;; track -> album
-(define (album/single t)
-  (album* #f t))
+(define (album/single trk)
+  (album* #f #:number? #f trk))
 
 ;; album -> string
 (define (album-title a)
@@ -262,10 +309,11 @@
   (define t2+a (track* #:audio (P "b") #:output (P "B")
                        (title: "bbb") (album: "ABC")))
   (define t3+a (track* #:audio (P "c") #:output (P "C")
-                       (title: "ccc") (track-num: "4") (album: "ABC") (artist: "Alphabet")))
+                       (title: "ccc") (track-num: "1") (album: "ABC") (artist: "Alphabet")))
 
-  (define alb-1+2 (album* "ABC" t1 t2))
-  (define alb-3+r (album* "ABC" t3 (artist: "Alphabet")))
+  (define alb-1+2 (album* "ABC" t1 t2 #:number? #f))
+  (define alb-1+2/n (album* "ABC" t1 t2)) ; #:number? #t
+  (define alb-3+r (album* "ABC" t3 (artist: "Alphabet") #:number? #f))
 
   (check-equal?
    (with-output-to-string (λ () (display alb-1+2)))
@@ -278,6 +326,11 @@
   (check-equal?
    alb-1+2
    (make-album (list t1+a t2+a)
+               (hasheq +album "ABC")))
+
+  (check-equal?
+   alb-1+2/n
+   (make-album (number-tracks (list t1+a t2+a))
                (hasheq +album "ABC")))
 
   (check-equal?
