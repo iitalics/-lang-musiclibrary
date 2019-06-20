@@ -7,10 +7,10 @@
  metadata-key? metadata-entry?
  +title +album +track-num
  (contract-out
-  [meta: (metadata-key? string? . -> . metadata-entry?)]
   [metadata-key->symbol (metadata-key? symbol? . -> . (or/c symbol? #f))]
-  [title: (string? . -> . metadata-entry?)]
-  [album: (string? . -> . metadata-entry?)]
+  [meta:      (metadata-key? string?      . -> . metadata-entry?)]
+  [title:     (string?                    . -> . metadata-entry?)]
+  [album:     (string?                    . -> . metadata-entry?)]
   [track-num: (exact-nonnegative-integer? . -> . metadata-entry?)])
  ; ---
  ; album
@@ -73,10 +73,15 @@
 
 (struct metadata-entry [key value]
   #:transparent
-  #:extra-constructor-name meta:)
+  #:extra-constructor-name meta:
+  #:methods gen:custom-write
+  [(define (write-proc m-e port mode)
+     (write `(meta: ,(metadata-entry-key m-e)
+                    ,(metadata-entry-value m-e))
+            port))])
 
-(define (title: s) (meta: +title s))
-(define (album: s) (meta: +album s))
+(define (title: s)     (meta: +title s))
+(define (album: s)     (meta: +album s))
 (define (track-num: n) (meta: +track-num (format "~a" n)))
 
 (module+ test
