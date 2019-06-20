@@ -19,10 +19,11 @@
  in-album-tracks
  (contract-out
   [rename album* album
-          ((string?)
-           #:rest (listof (or/c metadata-entry?
-                                track?
-                                (listof track?)))
+          (((or/c string? #f)) ; title
+           #:rest
+           (listof (or/c metadata-entry?
+                         track?
+                         (listof track?)))
            . ->* . album?)]
   [album/single (track? . -> . album?)]
   [album-title (album? . -> . string?)]
@@ -208,17 +209,15 @@
               (if ((list/c any/c) (album-tracks alb))
                 "" "s")))])
 
-;; track -> album
-(define (album/single t)
-  (album (list t) #hasheq()))
-
 ;; (album title meta-or-tracks ...) : album
 ;; title : string
 ;; meta-or-tracks : (or metadata-entry track [listof track])
 (define (album* title . xs)
 
   (define-values [meta tracks/rev]
-    (for/fold ([meta (hasheq +album title)]
+    (for/fold ([meta (if title
+                       (hasheq +album title)
+                       (hasheq))]
                [tracks/rev '()])
               ([x (in-list xs)])
       (cond
@@ -242,6 +241,10 @@
 
   (make-album tracks meta))
 
+;; track -> album
+(define (album/single t)
+  (album* #f t))
+
 ;; album -> string
 (define (album-title a)
   (hash-ref (album-meta a) +album "(no title)"))
@@ -263,6 +266,14 @@
 
   (define alb-1+2 (album* "ABC" t1 t2))
   (define alb-3+r (album* "ABC" t3 (artist: "Alphabet")))
+
+  (check-equal?
+   (with-output-to-string (λ () (display alb-1+2)))
+   "#<album:\"ABC\" (2 tracks)>")
+
+  (check-equal?
+   (with-output-to-string (λ () (display (album/single t1))))
+   "#<album:\"(no title)\" (1 track)>")
 
   (check-equal?
    alb-1+2
