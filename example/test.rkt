@@ -2,7 +2,9 @@
 
 (define a
   (album
-   (track #:audio-src (build-path "test-audio.ogg")
-          #:output-path (build-path "test-audio.mp3"))))
+   (track (build-path "test-audio.ogg")
+          #:output "test-audio"
+          (title: "Test")
+          (track-num: 1))))
 
 (queue-album! a)
