@@ -1,7 +1,5 @@
 #lang musiclibrary
 
-(displayln "Hello.")
-
 (define test-audio
   (build-path "test-audio.ogg"))
 
