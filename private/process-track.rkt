@@ -6,7 +6,7 @@
  ; config
  valid-output-format?
  (contract-out
-  [current-output-directory (parameter/c path-string?)]
+  [current-output-directory (parameter/c path?)]
   [current-output-format (parameter/c valid-output-format?)]
   [output-extension (case-> (-> bytes?) (valid-output-format? . -> . bytes?))])
  ; ---
@@ -30,7 +30,7 @@
   (or (eq? x 'mp3)
       (eq? x 'ogg)))
 
-;; (current-output-directory) : path-string
+;; (current-output-directory) : path
 (define current-output-directory
   (make-parameter (build-path "./musiclibrary")))
 
@@ -115,8 +115,7 @@
 
   ;; [-> A] -> A
   (define (call/test-musiclibrary f)
-    (parameterize ([current-output-directory
-                    (build-path "./test-musiclibrary")])
+    (parameterize ([current-output-directory (build-path "./test-musiclibrary")])
       (define (del)
         (when (directory-exists? (current-output-directory))
           (recursively-delete-directory (current-output-directory))))
