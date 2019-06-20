@@ -7,7 +7,9 @@
  "private/tracks-albums.rkt"
  "private/ffmpeg.rkt"
  racket/list
- racket/set)
+ racket/set
+ racket/match
+ racket/format)
 
 (module+ test
   (require rackunit))
@@ -50,9 +52,27 @@
                                   (current-output-extension)
                                   #".")))
 
+;; nat -> string
+;; --
+;; renders millisecond time value in FFmpeg-compatible "Time duration" form:
+;; "<S>+[.<m>...]"
+(define (format-ms ms)
+  (~r (/ ms 1000)))
+
 ;; (track->ffmpeg-args trk) : [listof (or string path)]
 ;; trk : track
 (define (track->ffmpeg-args trk)
+
+  (define-values [src src-extra-flags]
+    (match (track-audio-source trk)
+      [(audio-clip src start end)
+       (values src (list* "-ss" (format-ms start)
+                          (if end
+                            (list "-to" (format-ms end))
+                            '())))]
+      [(? source? src)
+       (values src '())]))
+
   (define metadata-args
     (for/fold ([args
                 ; -1 prevents metadata from input streams from automatically
@@ -61,9 +81,9 @@
               ([(k v) (in-track-metadata trk)])
       (define k-sym (metadata-key->symbol k (current-output-format)))
       (append args (list "-metadata:g" (format "~a=~a" k-sym v)))))
+
   `("-y"
-    "-i"
-    ,(track-audio-src trk)
+    ,@src-extra-flags "-i" ,src
     ,@metadata-args
     ,(track-full-output-path trk)))
 
@@ -155,6 +175,40 @@
      ,test-audio-path
      "-map_metadata" "-1" "-metadata:g" "TITLE=Foo"
      ,(build-path (current-output-directory) "test-audio.ogg")))
+
+  (define test-track-clipped
+    (track #:audio (make-audio-clip test-audio-path
+                                    123 4200)
+           #:output "test-audio"
+           (title: "Foo")))
+
+  (define test-track-clipped*
+    (track #:audio (make-audio-clip test-audio-path
+                                    500 #f)
+           #:output "test-audio"
+           (title: "Foo")))
+
+  (check-equal?
+   (parameterize ([current-output-format 'ogg])
+     (track->ffmpeg-args test-track-clipped))
+   `("-y"
+     "-ss" "0.123"
+     "-to" "4.2"
+     "-i"
+     ,test-audio-path
+     "-map_metadata" "-1" "-metadata:g" "TITLE=Foo"
+     ,(build-path (current-output-directory) "test-audio.ogg")))
+
+  (check-equal?
+   (parameterize ([current-output-format 'ogg])
+     (track->ffmpeg-args test-track-clipped*))
+   `("-y"
+     "-ss" "0.5"
+     "-i"
+     ,test-audio-path
+     "-map_metadata" "-1" "-metadata:g" "TITLE=Foo"
+     ,(build-path (current-output-directory) "test-audio.ogg")))
+
 
   ;; -----------------------------------
   ;; IO performing tests
