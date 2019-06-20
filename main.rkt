@@ -6,9 +6,6 @@
 (require
  "private/tracks-albums.rkt"
  "private/ffmpeg.rkt"
- racket/list
- racket/set
- racket/match
  racket/format)
 
 (module+ test
