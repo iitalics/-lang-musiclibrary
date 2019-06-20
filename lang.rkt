@@ -28,12 +28,16 @@
 ;; traverses every form, replacing toplevel expressions with (define tmp-id <expr>), and
 ;; accumulates these tmp-id's. inserts (finish tmp-id ...) at the end of the module.
 
+;; TODO: look into syntax-local-lift + wrapping-module-begin
+
 (begin-for-syntax
-  (define-syntax-class definition-form
+  (define-syntax-class non-expression-form
     [pattern ({~or {~literal define-values}
                    {~literal define-syntaxes}
                    {~literal module}
-                   {~literal module*}}
+                   {~literal module*}
+                   {~literal #%require}
+                   {~literal #%provide}}
               . _)]))
 
 (define-syntax traverse-module
@@ -42,17 +46,15 @@
      #'(finish . acc)]
 
     [(_ acc form0 . forms)
-     (syntax-parse (local-expand #'form0
-                                 'module
-                                 #f)
+     (syntax-parse (local-expand #'form0 'module #f)
        ; splice (begin ..)'s
        [({~literal begin} form* ...)
         #'(traverse-module acc form* ... . forms)]
 
-       ; leave definitions alone
-       [df:definition-form
+       ; leave non-expressions alone
+       [form:non-expression-form
         #'(begin
-            df
+            form
             (traverse-module acc . forms))]
 
        ; accumulate expressions
