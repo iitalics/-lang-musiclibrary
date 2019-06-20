@@ -31,16 +31,7 @@
   [track-output-path (track? . -> . path?)]
   [track-metadata (track? metadata-key? . -> . (or/c string? #f))]
   [track-title (track? . -> . string?)]
-  [track-number (track? . -> . (or/c exact-integer? #f))])
- ; ---
- ; current-tracks-to-generate
- with-generate-tracks
- (contract-out
-  [rename current-tracks-to-generate*
-          current-tracks-to-generate
-          (-> (set/c track?))]
-  [queue-track! (track? . -> . any)]
-  [queue-album! (album? . -> . any)]))
+  [track-number (track? . -> . (or/c exact-integer? #f))]))
 
 (require
  racket/set)
@@ -156,44 +147,6 @@
   (cond [(track-metadata t +track-num) => string->number]
         [else #f]))
 
-;; ---------------------------------------------------------------------------------------
-;; Tracks queue
-;; --------------------
-
-;; (current-tracks-to-generate) : (or #f [seteqof track])
-(define current-tracks-to-generate
-  (make-parameter #f))
-
-;; (current-tracks-to-generate*) : [seteqof track]
-(define (current-tracks-to-generate*)
-  (define ts (current-tracks-to-generate))
-  (unless ts
-    (error 'current-tracks-to-generate
-           "tracks queue not initialized; cannot add track"))
-  ts)
-
-;; [-> any] -> [seteqof tracks]
-(define (call/generate-tracks f)
-  (parameterize ([current-tracks-to-generate (seteq)])
-    (f)
-    (current-tracks-to-generate)))
-
-(define-syntax-rule (with-generate-tracks body ...)
-  (call/generate-tracks (λ () body ...)))
-
-;; (queue-track! t) : void
-;; t : track
-(define (queue-track! t)
-  (queue-album! (album t)))
-
-;; (queue-album! a) : void
-;; a : album
-(define (queue-album! alb)
-  (current-tracks-to-generate
-   (for/fold ([ts (current-tracks-to-generate*)])
-             ([t  (in-list alb)])
-     (set-add ts t))))
-
 ;; =======================================================================================
 
 (module+ test
@@ -211,29 +164,4 @@
    "#<track:\"bbb\">")
 
   (check-equal? (track-number t2) #f)
-  (check-equal? (track-number t3) 4)
-
-  ;; ---------------
-  ;; current-tracks-to-generate
-
-  (check-exn #px"not init"
-             (λ () (current-tracks-to-generate*)))
-
-  (check-equal?
-   (with-generate-tracks
-     (queue-track! t1))
-   (seteq t1))
-
-  (check-equal?
-   (with-generate-tracks
-     (queue-track! t1)
-     (with-generate-tracks
-       (queue-track! t2)))
-   (seteq t1))
-
-  (check-equal?
-   (with-generate-tracks
-     (queue-track! t1)
-     (queue-album! (album t2 t3))
-     (queue-track! t3))
-   (seteq t1 t2 t3)))
+  (check-equal? (track-number t3) 4))

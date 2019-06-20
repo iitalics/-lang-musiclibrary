@@ -76,11 +76,6 @@
     (exec-ffmpeg (track->ffmpeg-args trk)))
   (void))
 
-;; -> void
-(define (process-queued-tracks)
-  (set-for-each (current-tracks-to-generate)
-                process-track))
-
 ;; ---------------------------------------------------------------------------------------
 ;; Entry point
 ;; --------------------
