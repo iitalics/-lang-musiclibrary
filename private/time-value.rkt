@@ -4,8 +4,8 @@
 (provide
  time-value?
  (contract-out
-  [time-value->milliseconds
-   (time-value? . -> . exact-nonnegative-integer?)]))
+  [time-value->seconds      (time-value? . -> . real?)]
+  [time-value->milliseconds (time-value? . -> . exact-nonnegative-integer?)]))
 
 (require
  racket/match
@@ -30,18 +30,18 @@
            (regexp-match? TIME-VALUE-REGEXP
                           (symbol->string x)))))
 
-;; float -> nat
-(define (s->ms x)
-  (inexact->exact (round (* 1000 x))))
-
-;; time-value -> nat
-(define (time-value->milliseconds x)
+;; time-value -> real
+(define (time-value->seconds x)
   (cond
-    [(number? x) (s->ms x)]
+    [(number? x) x]
     [(symbol? x) (parse-time (symbol->string x))]
     [else        (parse-time x)]))
 
-;; string (matching TIME-VALUE-REGEXP) -> nat
+;; time-value -> nat
+(define (time-value->milliseconds x)
+  (inexact->exact (round (* 1000 (time-value->seconds x)))))
+
+;; string (matching TIME-VALUE-REGEXP) -> real
 (define (parse-time str)
   (define-values [hr mn sc frac]
     (match (regexp-match TIME-VALUE-REGEXP str)
@@ -49,11 +49,10 @@
        (values "0" mn sc (or frac "0"))]
       [(list _ _ hr mn sc #f #f frac)
        (values hr mn sc (or frac "0"))]))
-
-  (+ (* 1000 60 60 (string->number hr))
-     (* 1000 60    (string->number mn))
-     (* 1000       (string->number sc))
-     (s->ms (string->number frac))))
+  (+ (* 60 60 (string->number hr))
+     (* 60    (string->number mn))
+     (*       (string->number sc))
+     (string->number frac)))
 
 (module+ test
 
@@ -69,6 +68,19 @@
                 (+ 500 (* 1000 (+ (* 1 60 60) (* 23 60) 20))))
   (check-equal? (time-value->milliseconds '13:45:17)
                 (* 1000 (+ (* 13 60 60) (* 45 60) 17)))
+
+  (for ([tv (in-list '(0.5
+                       20
+                       1:20
+                       12:23
+                       12:23.1
+                       1:00:00
+                       3:82:10.501))])
+    (check-true (time-value? tv))
+    (check-= (/ (time-value->milliseconds tv) 1000)
+             (time-value->seconds tv)
+             0.0001
+             (format "(time-value->X ~a)" tv)))
 
   (check-false (time-value? "1:5"))
   (check-false (time-value? "12:3:45"))
