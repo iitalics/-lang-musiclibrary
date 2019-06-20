@@ -23,7 +23,8 @@
  in-track-metadata
  (contract-out
   [rename track* track
-          ((source? #:output path-string?)
+          ((#:audio source?
+            #:output path-string?)
            #:rest (listof metadata-entry?)
            . ->* . track?)]
   [track-audio-src (track? . -> . source?)]
@@ -130,11 +131,11 @@
 (define-syntax-rule (in-track-metadata trk)
   (in-hash (track-meta trk)))
 
-;; (track* audio-src #:output out-path m-e ...)
+;; (track* #:audio audio-src #:output out-path m-e ...)
 ;; audio-src : source
 ;; out-path : path-string
 ;; m-e : metadata-entry
-(define (track** audio-src
+(define (track** #:audio audio-src
                  #:output out-path
                  . m-es)
   (make-track audio-src
@@ -201,9 +202,9 @@
   ;; ---------------
   ;; track
 
-  (define t1 (track* (P "a") #:output (P "A") (title: "aaa")))
-  (define t2 (track* (P "b") #:output (P "B") (title: "bbb")))
-  (define t3 (track* (P "c") #:output (P "C") (title: "ccc") (track-num: "4")))
+  (define t1 (track* #:audio (P "a") #:output (P "A") (title: "aaa")))
+  (define t2 (track* #:audio (P "b") #:output (P "B") (title: "bbb")))
+  (define t3 (track* #:audio (P "c") #:output (P "C") (title: "ccc") (track-num: "4")))
 
   (check-equal?
    (with-output-to-string (λ () (display t2)))

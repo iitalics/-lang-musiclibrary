@@ -141,7 +141,7 @@
                 "./example/test-audio.ogg"))
 
   (define test-track
-    (track test-audio-path
+    (track #:audio test-audio-path
            #:output "test-audio"
            (title: "Foo")))
 
