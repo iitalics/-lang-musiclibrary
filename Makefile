@@ -10,4 +10,4 @@ test:
 	raco test ${SOURCES}
 
 clean:
-	rm -fr $(shell find -type d -name 'compiled')
+	rm -fr $(shell find -type d -name 'compiled') example/musiclibrary
