@@ -1,22 +1,88 @@
 #lang racket
 (provide
- (rename-out [module-begin #%module-begin])
+ #%module-begin
 
  (except-out (all-from-out racket)
-             #%module-begin)
+             ;#%module-begin
+             module module* module+)
 
- (except-out (all-from-out musiclibrary)
-             musiclibrary))
+ (all-from-out musiclibrary))
 
 (require
- musiclibrary)
+ musiclibrary
+ (for-syntax
+  racket/base
+  syntax/parse))
 
 ;; ---------------------------------------------------------------------------------------
 
-(define-syntax-rule (module-begin body ...)
-  (#%plain-module-begin
-   (musiclibrary
-    body ...)))
+;; module-begin wrapper for #lang musiclibrary
+(define-syntax #%module-begin
+  (syntax-parser
+    [(_ body ...)
+     #'(#%plain-module-begin
+        (traverse-module () body ...))]))
+
+;; (traverse-module [tmp-id ...] form ...)
+;;
+;; traverses every form, replacing toplevel expressions with (define tmp-id <expr>), and
+;; accumulates these tmp-id's. inserts (finish tmp-id ...) at the end of the module.
+
+(begin-for-syntax
+  (define-syntax-class definition-form
+    [pattern ({~or {~literal define-values}
+                   {~literal define-syntaxes}
+                   {~literal module}
+                   {~literal module*}}
+              . _)]))
+
+(define-syntax traverse-module
+  (syntax-parser
+    [(_ acc)
+     #'(finish . acc)]
+
+    [(_ acc form0 . forms)
+     (syntax-parse (local-expand #'form0
+                                 'module
+                                 #f)
+       ; splice (begin ..)'s
+       [({~literal begin} form* ...)
+        #'(traverse-module acc form* ... . forms)]
+
+       ; leave definitions alone
+       [df:definition-form
+        #'(begin
+            df
+            (traverse-module acc . forms))]
+
+       ; accumulate expressions
+       [expr
+        #:with [tmp-id*] (generate-temporaries #'[expr])
+        #:with acc* #'[tmp-id* . acc]
+        #'(begin
+            (define tmp-id* expr)
+            (traverse-module acc* . forms))])]))
+
+(define-syntax finish
+  (syntax-parser
+    [(_ id ...)
+     #'(generate-music-library
+        (pick-out-albums id ...))]))
+
+;; any ... -> (listof album)
+(define (pick-out-albums . things)
+  (define maybe-albums
+    (for/list ([thing (in-list things)])
+      (cond
+        [(void? thing) #f]
+        [(track? thing) (album thing)]
+        [(album? thing) thing]
+        [else (error 'musiclibrary
+                     (~a "invalid toplevel expression.\n"
+                         "  expected: (or/c track? album? void?)\n"
+                         "  got: " thing))])))
+
+  (filter values maybe-albums))
 
 ;; ---------------------------------------------------------------------------------------
 

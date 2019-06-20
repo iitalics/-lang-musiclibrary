@@ -1,7 +1,7 @@
 #lang racket/base
 (provide
  (all-from-out "private/tracks-albums.rkt")
- musiclibrary)
+ generate-music-library)
 
 (require
  "private/tracks-albums.rkt"
@@ -85,16 +85,14 @@
 ;; Entry point
 ;; --------------------
 
-;; (musiclibrary body ...)
-(define-syntax-rule (musiclibrary body ...)
-  (musiclibrary-proc (λ () body ...)))
-
-(define (musiclibrary-proc f)
-  (void
-   (with-generate-tracks
-     (recursively-make-directory (current-output-directory))
-     (f)
-     (process-queued-tracks))))
+;; (generate-music-library library) : void
+;; library : (listof album)
+(define (generate-music-library library)
+  (recursively-make-directory (current-output-directory))
+  (for* ([a (in-list library)]
+         [t (in-list a)])
+    (printf "Processing: ~a\n" t)
+    (process-track t)))
 
 ;; =======================================================================================
 
