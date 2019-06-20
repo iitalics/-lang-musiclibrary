@@ -1,33 +1,12 @@
 #lang racket/base
-(provide
- (all-from-out "./private/tracks-albums.rkt")
- (all-from-out "./private/time-value.rkt")
- generate-music-library)
+
+;; this file exists only to reprovide other identifiers when you do (require musiclibrary)
+;; or #lang musiclibrary
 
 (require
  "./private/tracks-albums.rkt"
- "./private/time-value.rkt"
- "./private/process-track.rkt")
+ "./private/time-value.rkt")
 
-;; ---------------------------------------------------------------------------------------
-;; Entry point
-;; --------------------
-
-;; (generate-music-library library) : void
-;; library : (listof album)
-(define (generate-music-library library)
-  (recursively-make-directory (current-output-directory))
-  (for* ([a (in-list library)]
-         [t (in-album-tracks a)])
-    (printf "Processing: ~a\n" t)
-    (process-track t)))
-
-;; (recursively-make-directory path) : void
-;; path : path-string
-(define (recursively-make-directory path)
-  (let loop ([path (simplify-path path)])
-    (define-values [root _final _must-be-dir?] (split-path path))
-    (unless (directory-exists? path)
-      (when (path? root)
-        (loop root))
-      (make-directory path))))
+(provide
+ (all-from-out "./private/tracks-albums.rkt")
+ (all-from-out "./private/time-value.rkt"))

@@ -1,18 +1,20 @@
 #lang racket
 (provide
  #%module-begin
-
- (except-out (all-from-out racket)
-             ;#%module-begin
-             module module* module+)
-
+ (all-from-out racket)
  (all-from-out musiclibrary))
 
 (require
  musiclibrary
+ "./private/entry-point.rkt"
  (for-syntax
   racket/base
   syntax/parse))
+
+;; ---------------------------------------------------------------------------------------
+
+(module reader syntax/module-reader
+  musiclibrary/lang)
 
 ;; ---------------------------------------------------------------------------------------
 
@@ -85,8 +87,3 @@
                          "  got: " thing))])))
 
   (filter values maybe-albums))
-
-;; ---------------------------------------------------------------------------------------
-
-(module reader syntax/module-reader
-  musiclibrary/lang)
