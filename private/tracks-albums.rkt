@@ -30,16 +30,26 @@
   [album-title (album? . -> . string?)]
   [album-tracks (album? . -> . (listof track?))])
  ; ---
+ ; audio
+ source? audio-source?
+ (contract-out
+  (struct audio-clip
+    ([source   source?]
+     [start/ms exact-nonnegative-integer?]
+     [end/ms   (or/c exact-nonnegative-integer? #f)]))
+  [audio-clip-start (audio-clip? . -> . flonum?)]
+  [audio-clip-end (audio-clip? . -> . (or/c flonum? #f))])
+ ; ---
  ; track
- track? source?
+ track?
  in-track-metadata
  (contract-out
   [rename track* track
-          ((#:audio source?
+          ((#:audio audio-source?
             #:output path-string?)
            #:rest (listof metadata-entry?)
            . ->* . track?)]
-  [track-audio-src (track? . -> . source?)]
+  [track-audio-source (track? . -> . audio-source?)]
   [track-output-path (track? . -> . path?)]
   [track-metadata (track? metadata-key? . -> . (or/c string? #f))]
   [track-title (track? . -> . string?)]
@@ -120,17 +130,52 @@
   (check-equal? (metadata-key->symbol +title 'flac) #f))
 
 ;; ---------------------------------------------------------------------------------------
-;; Tracks
+;; Audio sources/clips
 ;; --------------------
 
 ;; source ::= path
 (define (source? x)
   (path? x))
 
-;; audio-src : source
+;; audio-source ::= source | audio-clip
+(define (audio-source? x)
+  (or (source? x)
+      (audio-clip? x)))
+
+;; source : source
+;; start/ms : nat
+;; end/ms : (or nat #f)
+(struct audio-clip [source start/ms end/ms]
+  #:transparent
+  #:extra-constructor-name make-audio-clip)
+
+(define (ms->s x) (* x 0.001))
+
+;; audio-clip -> float
+(define (audio-clip-start ac)
+  (ms->s (audio-clip-start/ms ac)))
+
+;; audio-clip -> (or float #f)
+(define (audio-clip-end ac)
+  (cond [(audio-clip-end/ms ac) => ms->s]
+        [else #f]))
+
+(module+ test
+  (define ac-1 (make-audio-clip (build-path "A") 500 3000))
+  (define ac-2 (make-audio-clip (build-path "B") 3000 #f))
+  (check-= (audio-clip-start ac-1) 0.5 0.000001)
+  (check-= (audio-clip-start ac-2) 3.0 0.000001)
+  (check-= (audio-clip-end ac-1) 3.0 0.000001)
+  (check-false (audio-clip-end ac-2)))
+
+;; ---------------------------------------------------------------------------------------
+;; Tracks
+;; --------------------
+
+;; audio-source : audio-source
 ;; output-path : path
 ;; meta : (hasheq metadata-key => string)
-(struct track [audio-src
+(struct track [audio-source
                output-path
                meta]
   #:transparent
@@ -148,7 +193,7 @@
   (in-hash (track-meta trk)))
 
 ;; (track* #:audio audio-src #:output out-path m-e ...)
-;; audio-src : source
+;; audio-src : audio-source
 ;; out-path : path-string
 ;; m-e : metadata-entry
 (define (track** #:audio audio-src
@@ -178,7 +223,7 @@
   (define P string->path)
 
   (define t1 (track* #:audio (P "a") #:output (P "A") (title: "aaa")))
-  (define t2 (track* #:audio (P "b") #:output (P "B") (title: "bbb")))
+  (define t2 (track* #:audio (make-audio-clip (P "b") 1000 #f) #:output (P "B") (title: "bbb")))
   (define t3 (track* #:audio (P "c") #:output (P "C") (title: "ccc") (track-num: "1")))
 
   (check-equal?
@@ -306,7 +351,7 @@
 
   (define t1+a (track* #:audio (P "a") #:output (P "A")
                        (title: "aaa") (album: "ABC")))
-  (define t2+a (track* #:audio (P "b") #:output (P "B")
+  (define t2+a (track* #:audio (make-audio-clip (P "b") 1000 #f) #:output (P "B")
                        (title: "bbb") (album: "ABC")))
   (define t3+a (track* #:audio (P "c") #:output (P "C")
                        (title: "ccc") (track-num: "1") (album: "ABC") (artist: "Alphabet")))

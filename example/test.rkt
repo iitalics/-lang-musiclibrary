@@ -8,11 +8,9 @@
 (define t
   (track #:audio test-audio
          #:output "test-audio"
-         (title: "Test")
-         (track-num: 1)))
+         (title: "Test")))
 
-(album "The Test"
-       t)
+(album "The Test" t)
 
 (begin
   (define useless 3)
