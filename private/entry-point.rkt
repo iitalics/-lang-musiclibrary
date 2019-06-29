@@ -108,61 +108,115 @@
 ;; Programmatic entry point
 ;; --------------------
 
+;; (current-number-of-jobs) : positive-nat
+(define current-number-of-jobs
+  (make-parameter 8))
+
 ;; (generate-music-library library) : void
 ;; library : (listof album)
 (define (generate-music-library library)
 
+  (define mailbox
+    (make-channel))
+
   (define tracks
-    (for*/vector ([a (in-list library)]
-                  [t (in-album-tracks a)])
+    (for*/list ([a (in-list library)]
+                [t (in-album-tracks a)])
       t))
 
-  (define ind (make-indicator "Starting ..."))
-  (define mailbox (make-channel))
+  (define n-tracks
+    (length tracks))
+
+  ;; ----
+  ;; worker
+
+  (define (worker-routine)
+    (define trk
+      (let ([getter (make-channel)])
+        (channel-put mailbox `(wait ,getter))
+        (channel-get getter)))
+
+    (with-handlers ([exn:fail? (λ (e)
+                                 (channel-put mailbox `(fail ,trk ,e)))])
+      (process-track trk)
+      (channel-put mailbox `(ok ,trk)))
+
+    (worker-routine))
+
+  ;; ----
+  ;; ping
 
   (define (ping-routine)
     (sleep 1/3)
     (channel-put mailbox 'ping)
     (ping-routine))
 
-  (define (worker-routine)
-    (recursively-make-directory (current-output-directory))
-    (for ([trk (in-vector tracks)]
-          [i (in-naturals)])
-      (channel-put mailbox `(start ,i ,trk))
-      (with-handlers ([exn:fail? (λ (e)
-                                   (channel-put mailbox `(fail ,trk ,e)))])
-        (process-track trk)
-        (channel-put mailbox `(ok ,trk)))))
+  ;; ----
+  ;; mailbox loop
 
-  (define ping-thread (thread ping-routine))
-  (define worker-thread (thread worker-routine))
+  (define (message n-complete . stuff)
+    (format "(~a/~a) ~a"
+            n-complete
+            n-tracks
+            (apply ~a stuff)))
+
+  (define ind
+    (make-indicator (message 0 "Started.")))
+
+  ;; tq : (listof track)
+  ;; n-complete : nat
+  (define (mail-loop tq n-complete)
+    (unless (>= n-complete
+                n-tracks)
+      (match (channel-get mailbox)
+        ['ping
+         (indicator-spin! ind)
+         (mail-loop tq n-complete)]
+
+        [`(ok ,trk)
+         (define n-complete* (add1 n-complete))
+         (indicator-update! ind (message n-complete*
+                                         "Finished: "
+                                         (~s (track-title trk))))
+         (mail-loop tq n-complete*)]
+
+        [`(fail ,trk ,e)
+         (define n-complete* (add1 n-complete))
+         (indicator-clear! ind)
+         (displayln (exn-message e))
+         (indicator-update! ind (message n-complete*
+                                         "Failed: "
+                                         (~s (track-title trk))))
+         (mail-loop tq n-complete*)]
+
+        [`(wait ,getter)
+         (define tq* (cond
+                       [(null? tq) '()]
+                       [else (channel-put getter (car tq))
+                             (cdr tq)]))
+         (mail-loop tq* n-complete)])))
+
+  ;; ---
+  ;; starts here
 
   (printf "* Processing ~a ~a\n"
-          (vector-length tracks)
-          (plural (vector-length tracks) "track"))
+          n-tracks
+          (plural n-tracks "track"))
 
-  (let loop ()
-    (define v (sync mailbox worker-thread))
-    (unless (eq? v worker-thread)
-      (match v
-        ['ping
-         (indicator-spin! ind)]
-        [`(start ,i ,trk)
-         (indicator-update! ind (format "(~a/~a) Processing track: ~s"
-                                        (add1 i)
-                                        (vector-length tracks)
-                                        (track-title trk)))]
-        [`(fail ,trk ,e)
-         (indicator-clear! ind)
-         (printf "* Failed: ~s\n\n~a\n\n"
-                 (track-title trk)
-                 (exn-message e))]
-        [`(ok ,trk)
-         (void)])
-      (loop)))
+  (recursively-make-directory (current-output-directory))
 
-  (break-thread ping-thread)
+  (define worker-threads
+    (for/list ([i (in-range (current-number-of-jobs))])
+      (thread worker-routine)))
+
+  (define ping-thread
+    (thread ping-routine))
+
+  (mail-loop tracks 0)
+
+  (for ([thd (in-list (cons ping-thread worker-threads))])
+    (break-thread thd))
+
   (printf "\n* Completed\n"))
 
 ;; ---------------------------------------------------------------------------------------
