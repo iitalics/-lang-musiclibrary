@@ -10,16 +10,20 @@
   [metadata-key->symbol (metadata-key? symbol? . -> . (or/c symbol? #f))])
  ;; ---
  ;; entries
+ metadata-entry?
  (contract-out
-  (struct metadata-entry
-    ([key   metadata-key?]
-     [value string?])
-    #:omit-constructor)
   [meta:      (metadata-key? string?      . -> . metadata-entry?)]
   [title:     (string?                    . -> . metadata-entry?)]
   [album:     (string?                    . -> . metadata-entry?)]
   [artist:    (string?                    . -> . metadata-entry?)]
   [track-num: (exact-nonnegative-integer? . -> . metadata-entry?)]))
+
+; use '(require (submod "./metadata.rkt" metadata-entry-struct))' to get the accessors for
+; the 'metadata-entry' struct (this way they are not publicly accessible)
+(module* metadata-entry-struct #f
+  (provide
+   metadata-entry-key
+   metadata-entry-value))
 
 (module+ test
   (require rackunit))

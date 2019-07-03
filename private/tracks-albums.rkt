@@ -54,6 +54,7 @@
 (require
  "./time-value.rkt"
  "./metadata.rkt"
+ (submod "./metadata.rkt" metadata-entry-struct)
  (only-in racket/list range)
  (only-in racket/hash hash-union))
 
