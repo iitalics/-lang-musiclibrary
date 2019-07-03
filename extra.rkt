@@ -4,12 +4,7 @@
 (provide
  ; ---
  ; sliced-tracks
- sliced-tracks
- (contract-out
-  [make-sliced-tracks
-   (source?
-    (listof (cons/c string? exact-nonnegative-integer?))
-    . -> . (listof track?))]))
+ sliced-tracks)
 
 (require
  "./private/tracks-albums.rkt"
@@ -22,6 +17,42 @@
   (require rackunit))
 
 ;; ---------------------------------------------------------------------------------------
+;; Utils
+;; --------------------
+
+;; (slice-timestamps stamps) : [listof X]
+;; stamps : [listof (cons nat [(or nat #f) -> X])]
+;; --
+;; sorts each '(cons tm func)' in 'stamps', then returns the result of applying 'func' to
+;; the next largest 'tm' in the list (or '#f' if it is the largest)
+(define (slice-timestamps stamps_)
+  (define stamps
+    (sort stamps_ < #:key car))
+
+  (if (null? stamps)
+    '()
+    (for/list ([stamp (in-list stamps)]
+               [stamp* (in-list (append (cdr stamps) (list #f)))])
+      (define func (cdr stamp))
+      (func (and stamp* (car stamp*))))))
+
+(module+ test
+  (define (entry x)
+    (cons x (λ (y) (list x y))))
+
+  (check-equal? (slice-timestamps '()) '())
+
+  (check-equal? (slice-timestamps
+                 (list (entry 0)
+                       (entry 1)
+                       (entry 5)
+                       (entry 2)))
+                `([0 1]
+                  [1 2]
+                  [2 5]
+                  [5 #f])))
+
+;; ---------------------------------------------------------------------------------------
 ;; sliced-tracks
 ;; --------------------
 
@@ -29,79 +60,43 @@
   (define-syntax-class tv
     [pattern {~and x {~or :number :id}}
              #:when (time-value? (syntax-e #'x))
+             #:attr s #`#,(time-value->seconds (syntax-e #'x))
              #:attr ms #`#,(time-value->milliseconds (syntax-e #'x))]))
 
 (define-simple-macro (sliced-tracks #:audio src-expr
                                     {~seq title:str start:tv}
                                     ...)
-  (make-sliced-tracks src-expr
-                      '([title . start.ms]
-                        ...)))
-
-;; (make-sliced-tracks src stamps) : [listof track]
-;; src : source
-;; stamps : [listof (cons string nat)]
-(define (make-sliced-tracks src stamps)
-  (define stamps* (list->vector stamps))
-  (vector-sort! stamps* < #:key cdr)
-  (for/list ([i (in-naturals)]
-             [stamp (in-vector stamps*)])
-    (define title (car stamp))
-    (define start/ms (cdr stamp))
-    (define end/ms (if (= (add1 i) (vector-length stamps*))
-                     #f
-                     (cdr (vector-ref stamps* (add1 i)))))
-    (track
-     #:audio (make-audio-clip src start/ms end/ms)
-     ; TODO: get around having to supply this argument
-     #:output (build-path title)
-     (title: title))))
+  (let ([src src-expr])
+    (slice-timestamps
+     (list (cons 'start.s
+                 (λ (end)
+                   (track #:audio (audio-clip src start.s end)
+                          ;; TODO: generate output somewhere else
+                          #:output 'title
+                          (title: 'title))))
+           ...))))
 
 ;; =======================================================================================
 
 (module+ test
   (define s (build-path "S"))
-
-  ;; -----------
-  ;; make-sliced-tracks
-
-  (check-equal? (make-sliced-tracks s '()) '())
-
-  (check-equal?
-   (make-sliced-tracks s '(["a" . 0]
-                           ["b" . 100]
-                           ["c" . 200]))
-   (list (track #:audio (audio-clip s 0 0.1)
-                #:output (build-path "a")
-                (title: "a"))
-         (track #:audio (audio-clip s 0.1 0.2)
-                #:output (build-path "b")
-                (title: "b"))
-         (track #:audio (audio-clip s 0.2)
-                #:output (build-path "c")
-                (title: "c"))))
-
-  ; commutative
-  (check-equal? (make-sliced-tracks s '(["a" . 0]
-                                        ["b" . 200]
-                                        ["c" . 500]))
-                (make-sliced-tracks s '(["a" . 0]
-                                        ["c" . 500]
-                                        ["b" . 200])))
-
-  ;; -----------
-  ;; sliced-tracks
-
   (define i 0)
 
   (check-equal?
    (sliced-tracks #:audio (begin (set! i (add1 i)) s)
-                  "e" 0:00
-                  "g" 1:00.1
-                  "h" 2:01)
-   (make-sliced-tracks s '(["e" .      0]
-                           ["g" .  60100]
-                           ["h" . 121000])))
+                  "b" 1:00.1
+                  "a" 0:00
+                  "c" 2:01)
+   (list
+    (track #:audio (audio-clip s 0 '1:00.1)
+           #:output (build-path "a")
+           (title: "a"))
+    (track #:audio (audio-clip s '1:00.1 '2:01)
+           #:output (build-path "b")
+           (title: "b"))
+    (track #:audio (audio-clip s '2:01)
+           #:output (build-path "c")
+           (title: "c"))))
 
   ; side effects
   (check-equal? i 1))
