@@ -8,6 +8,7 @@
 
 (require
  "./private/tracks-albums.rkt"
+ "./private/metadata.rkt"
  racket/vector
  syntax/parse/define
  (for-syntax racket/base

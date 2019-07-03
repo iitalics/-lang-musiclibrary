@@ -18,6 +18,7 @@
 (require
  "./tracks-albums.rkt"
  "./ffmpeg.rkt"
+ "./metadata.rkt"
  racket/format)
 
 (module+ test

@@ -5,8 +5,10 @@
 
 (require
  "./private/tracks-albums.rkt"
- "./private/time-value.rkt")
+ "./private/time-value.rkt"
+ "./private/metadata.rkt")
 
 (provide
  (all-from-out "./private/tracks-albums.rkt")
- (all-from-out "./private/time-value.rkt"))
+ (all-from-out "./private/time-value.rkt")
+ (all-from-out "./private/metadata.rkt"))
