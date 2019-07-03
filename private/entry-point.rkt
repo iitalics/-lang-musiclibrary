@@ -261,7 +261,16 @@
      (case fmt
        [("mp3") 'mp3]
        [("ogg") 'ogg]
-       [else (error "invalid output format ~s" fmt)])))
+       [else (error (format "invalid output format: ~s" fmt))])))
+
+   (("-j" "--jobs")
+    num
+    [(format "Number of jobs (default: ~a)" (current-number-of-jobs))]
+    (define num* (string->number num))
+    (if (and (exact-integer? num*)
+             (>= num* 1))
+      (current-number-of-jobs num*)
+      (error (format "invalid number of jobs: ~s" num))))
 
    (("--force")
     "Don't skip generating tracks if the file already exists"
