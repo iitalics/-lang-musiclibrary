@@ -52,8 +52,8 @@
  in-track-metadata
  (contract-out
   [rename track* track
-          ((#:audio audio-source?
-            #:output path-string?)
+          ((#:audio audio-source?)
+           (#:output path-string?)
            #:rest (listof metadata-entry?)
            . ->* . track?)]
   [track-audio-source (track? . -> . audio-source?)]
@@ -214,18 +214,35 @@
 (define-syntax-rule (in-track-metadata trk)
   (in-hash (track-meta trk)))
 
-;; (track* #:audio audio-src #:output out-path m-e ...)
+;; (track* #:audio audio-src [#:output out-path] m-e ...)
 ;; audio-src : audio-source
 ;; out-path : path-string
 ;; m-e : metadata-entry
 (define (track** #:audio audio-src
-                 #:output out-path
+                 #:output [out-path_ GENERATE-OUT-PATH]
                  . m-es)
-  (make-track audio-src
-              (build-path out-path)
-              (for/hash ([m-e (in-list m-es)])
-                (values (metadata-entry-key m-e)
-                        (metadata-entry-value m-e)))))
+
+  (define meta
+    (for/hash ([m-e (in-list m-es)])
+      (values (metadata-entry-key m-e)
+              (metadata-entry-value m-e))))
+
+  (define out-path
+    (cond
+      [(eq? out-path_ GENERATE-OUT-PATH)
+       (build-path (hash-ref meta
+                             +title
+                             (λ ()
+                               (error 'track
+                                      "Cannot choose output path when no title is specified"))))]
+      [else
+       (build-path out-path_)]))
+
+  (make-track audio-src out-path meta))
+
+(define GENERATE-OUT-PATH
+  (let () (struct gen-out-path []) (gen-out-path)))
+
 (define track*
   (procedure-rename track** 'track))
 
@@ -253,7 +270,15 @@
    "#<track:\"bbb\">")
 
   (check-equal? (track-number t2) #f)
-  (check-equal? (track-number t3) 1))
+  (check-equal? (track-number t3) 1)
+
+  (check-equal?
+   (track* #:audio (P "a") (title: "the title"))
+   (track* #:audio (P "a") #:output (P "the title") (title: "the title")))
+
+  (check-exn #px"no title"
+             (λ ()
+               (track* #:audio (P "...")))))
 
 ;; ---------------------------------------------------------------------------------------
 ;; Track helpers

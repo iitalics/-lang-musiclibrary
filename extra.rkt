@@ -79,8 +79,6 @@
      (list (cons 'start.s
                  (λ (end)
                    (track #:audio (audio-clip src start.s end)
-                          ;; TODO: generate output somewhere else
-                          #:output 'title
                           (title: 'title)
                           arg.stuff ... ...)))
            ...))))
