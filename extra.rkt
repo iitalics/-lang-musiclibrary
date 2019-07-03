@@ -62,10 +62,17 @@
     [pattern x
              #:when (time-value? (syntax-e #'x))
              #:attr s #`#,(time-value->seconds (syntax-e #'x))
-             #:attr ms #`#,(time-value->milliseconds (syntax-e #'x))]))
+             #:attr ms #`#,(time-value->milliseconds (syntax-e #'x))])
+
+  (define-splicing-syntax-class additional-arg
+    #:attributes ([stuff 1])
+    [pattern (x ...)
+             #:with [stuff ...] #'[(x ...)]]
+    [pattern {~seq k:keyword y}
+             #:with [stuff ...] #'[k y]]))
 
 (define-simple-macro (sliced-tracks #:audio src-expr
-                                    {~seq title:str start:tv}
+                                    {~seq title:str start:tv arg:additional-arg ...}
                                     ...)
   (let ([src src-expr])
     (slice-timestamps
@@ -74,7 +81,8 @@
                    (track #:audio (audio-clip src start.s end)
                           ;; TODO: generate output somewhere else
                           #:output 'title
-                          (title: 'title))))
+                          (title: 'title)
+                          arg.stuff ... ...)))
            ...))))
 
 ;; =======================================================================================
@@ -86,12 +94,13 @@
   (check-equal?
    (sliced-tracks #:audio (begin (set! i (add1 i)) s)
                   "b" 1:00.1
-                  "a" 0:00
+                  "a" 0:00 (artist: "A")
                   "c" 2:01)
    (list
     (track #:audio (audio-clip s 0 '1:00.1)
            #:output (build-path "a")
-           (title: "a"))
+           (title: "a")
+           (artist: "A"))
     (track #:audio (audio-clip s '1:00.1 '2:01)
            #:output (build-path "b")
            (title: "b"))
