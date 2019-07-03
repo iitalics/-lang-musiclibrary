@@ -14,7 +14,7 @@
              "./private/time-value.rkt"))
 
 (module+ test
-  (require rackunit))
+  (require rackunit syntax/macro-testing))
 
 ;; ---------------------------------------------------------------------------------------
 ;; Utils
@@ -58,7 +58,8 @@
 
 (begin-for-syntax
   (define-syntax-class tv
-    [pattern {~and x {~or :number :id}}
+    #:description "time value"
+    [pattern x
              #:when (time-value? (syntax-e #'x))
              #:attr s #`#,(time-value->seconds (syntax-e #'x))
              #:attr ms #`#,(time-value->milliseconds (syntax-e #'x))]))
@@ -97,6 +98,11 @@
     (track #:audio (audio-clip s '2:01)
            #:output (build-path "c")
            (title: "c"))))
+
+  (check-exn #px"sliced-tracks: expected time value"
+             (λ () (convert-compile-time-error
+                    (sliced-tracks #:audio s
+                                   "foo" 1:))))
 
   ; side effects
   (check-equal? i 1))
