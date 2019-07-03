@@ -117,6 +117,10 @@
 (define current-number-of-jobs
   (make-parameter 8))
 
+;; (current-skip-cached-tracks?) : boolean
+(define current-skip-cached-tracks?
+  (make-parameter #t))
+
 ;; (generate-music-library library) : void
 ;; library : (listof album)
 (define (generate-music-library library)
@@ -128,7 +132,8 @@
     (for*/fold ([tracks '()] [n-cached 0])
                ([a (in-list library)]
                 [t (in-album-tracks a)])
-      (if (track-cached? t)
+      (if (and (current-skip-cached-tracks?)
+               (track-cached? t))
         (values tracks (add1 n-cached))
         (values (cons t tracks) n-cached))))
 
@@ -257,6 +262,10 @@
        [("mp3") 'mp3]
        [("ogg") 'ogg]
        [else (error "invalid output format ~s" fmt)])))
+
+   (("--force")
+    "Don't skip generating tracks if the file already exists"
+    (current-skip-cached-tracks? #f))
 
    (("--ffmpeg")
     path
