@@ -37,6 +37,11 @@
         (loop root))
       (make-directory path))))
 
+(define-syntax-rule (loop-forever body ...)
+  (let loop ()
+    (let () body ...)
+    (loop)))
+
 ;; ---------------------------------------------------------------------------------------
 ;; Fancy spinning indicator
 ;; --------------------
@@ -119,10 +124,13 @@
   (define mailbox
     (make-channel))
 
-  (define tracks
-    (for*/list ([a (in-list library)]
+  (define-values [tracks n-cached]
+    (for*/fold ([tracks '()] [n-cached 0])
+               ([a (in-list library)]
                 [t (in-album-tracks a)])
-      t))
+      (if (track-cached? t)
+        (values tracks (add1 n-cached))
+        (values (cons t tracks) n-cached))))
 
   (define n-tracks
     (length tracks))
@@ -131,25 +139,24 @@
   ;; worker
 
   (define (worker-routine)
-    (define trk
-      (let ([getter (make-channel)])
-        (channel-put mailbox `(wait ,getter))
-        (channel-get getter)))
+    (loop-forever
+     (define trk
+       (let ([getter (make-channel)])
+         (channel-put mailbox `(wait ,getter))
+         (channel-get getter)))
 
-    (with-handlers ([exn:fail? (λ (e)
-                                 (channel-put mailbox `(fail ,trk ,e)))])
-      (process-track trk)
-      (channel-put mailbox `(ok ,trk)))
-
-    (worker-routine))
+     (with-handlers ([exn:fail? (λ (e)
+                                  (channel-put mailbox `(fail ,trk ,e)))])
+       (process-track trk)
+       (channel-put mailbox `(ok ,trk)))))
 
   ;; ----
   ;; ping
 
   (define (ping-routine)
-    (sleep 1/3)
-    (channel-put mailbox 'ping)
-    (ping-routine))
+    (loop-forever
+     (sleep 1/3)
+     (channel-put mailbox 'ping)))
 
   ;; ----
   ;; mailbox loop
@@ -202,6 +209,11 @@
   (printf "* Processing ~a ~a\n"
           n-tracks
           (plural n-tracks "track"))
+
+  (unless (zero? n-cached)
+    (printf "* (skipping ~a ~a)\n"
+            n-cached
+            (plural n-cached "track")))
 
   (recursively-make-directory (current-output-directory))
 

@@ -12,6 +12,7 @@
  ; ---
  ; process-track
  (contract-out
+  [track-cached? (track? . -> . boolean?)]
   [process-track (track? . -> . void?)]))
 
 (require
@@ -46,6 +47,11 @@
 ;; ---------------------------------------------------------------------------------------
 ;; Processing tracks
 ;; --------------------
+
+;; (track-cached? trk) : boolean
+;; trk : track
+(define (track-cached? trk)
+  (file-exists? (track-full-output-path trk)))
 
 ;; (process-track trk) : void
 ;; trk : track
