@@ -37,13 +37,26 @@
   [(define (write-proc m-k port mode)
      (display (metadata-key-pretty m-k) port))])
 
+(struct metadata-entry [key value]
+  #:transparent
+  #:extra-constructor-name meta:
+  #:methods gen:custom-write
+  [(define (write-proc m-e port mode)
+     (write `(meta: ,(metadata-entry-key m-e)
+                    ,(metadata-entry-value m-e))
+            port))])
+
 (define-syntax-rule (define-metadata-keys m-k->symbol-id
-                      [m-k-id ([m-k-fmt m-k-sym-expr] ...)]
+                      [m-k-id m:-id ([m-k-fmt m-k-sym-expr] ...)]
                       ...)
   (begin
     ;; each m-k-id is defined as a value that displays as itself when printed
     (define-values [m-k-id ...]
       (values (metadata-key 'm-k-id) ...))
+
+    (define (m:-id v)
+      (meta: m-k-id v))
+    ...
 
     ;; metadata-key? symbol -> (or symbol #f)
     (define (m-k->symbol-id m-k fmt)
@@ -56,10 +69,13 @@
         ...))))
 
 (define-metadata-keys metadata-key->symbol
-  [+title     ([mp3 'title] [ogg 'TITLE])]
-  [+album     ([mp3 'album] [ogg 'ALBUM])]
-  [+artist    ([mp3 'album_artist] [ogg 'ARTIST])]
-  [+track-num ([mp3 'track] [ogg 'TRACKNUMBER])])
+  [+title     title:     ([mp3 'title] [ogg 'TITLE])]
+  [+album     album:     ([mp3 'album] [ogg 'ALBUM])]
+  [+artist    artist:    ([mp3 'album_artist] [ogg 'ARTIST])]
+  [+track-num track-num:* ([mp3 'track] [ogg 'TRACKNUMBER])])
+
+(define (track-num: n)
+  (track-num:* (format "~a" n)))
 
 (module+ test
   (check-equal? (metadata-key->symbol +title 'mp3) 'title)
@@ -67,21 +83,3 @@
   (check-equal? (metadata-key->symbol +track-num 'mp3) 'track)
   (check-equal? (metadata-key->symbol +track-num 'ogg) 'TRACKNUMBER)
   (check-equal? (metadata-key->symbol +title 'flac) #f))
-
-;; ---------------------------------------------------------------------------------------
-;; Entries
-;; --------------------
-
-(struct metadata-entry [key value]
-  #:transparent
-  #:extra-constructor-name meta:
-  #:methods gen:custom-write
-  [(define (write-proc m-e port mode)
-     (write `(meta: ,(metadata-entry-key m-e)
-                    ,(metadata-entry-value m-e))
-            port))])
-
-(define (title: s)     (meta: +title s))
-(define (album: s)     (meta: +album s))
-(define (artist: s)    (meta: +artist s))
-(define (track-num: n) (meta: +track-num (format "~a" n)))
