@@ -63,11 +63,11 @@
     (exec-ffmpeg (track->ffmpeg-args trk)))
   (void))
 
-;; (track->ffmpeg-args trk) : [listof (or string path)]
+;; (track->ffmpeg-args trk) : ffmpeg-args
 ;; trk : track
 (define (track->ffmpeg-args trk)
 
-  (define-values [src src-extra-flags]
+  (define-values [src src-flags]
     (let ([asrc (track-audio-source trk)])
       (cond
         [(audio-clip? asrc)
@@ -76,22 +76,20 @@
          (values (audio-clip-source asrc)
                  (list* "-ss" (~r (/ ss 1000))
                         (if to (list "-to" (~r (/ to 1000))) '())))]
-        [else
+        [(source? asrc)
          (values asrc '())])))
 
-  (define metadata-args
-    (for/fold ([args
-                ; -1 prevents metadata from input streams from automatically
-                ; being copied over
-                '("-map_metadata" "-1")])
-              ([(k v) (in-track-metadata trk)])
-      (define k-sym (metadata-key->symbol k (current-output-format)))
-      (append args (list "-metadata:g" (format "~a=~a" k-sym v)))))
-
-  `("-y"
-    ,@src-extra-flags "-i" ,src
-    ,@metadata-args
-    ,(track-full-output-path trk)))
+  (let* ([args
+          (make-ffmpeg-args (track-full-output-path trk)
+                            #:asrc-path src
+                            #:asrc-flags src-flags)]
+         [args ; add metadata
+          (for/fold ([args args])
+                    ([(k v) (in-track-metadata trk)])
+            (ffmpeg-args-set-metadata args
+                                      (metadata-key->symbol k (current-output-format))
+                                      v))])
+    args))
 
 ;; (track-full-output-path trk) : path
 ;; trk : track
@@ -152,20 +150,22 @@
   (check-equal?
    (parameterize ([current-output-format 'mp3])
      (track->ffmpeg-args test-track))
-   `("-y"
-     "-i"
-     ,test-audio-path
-     "-map_metadata" "-1" "-metadata:g" "title=Foo"
-     ,(build-path (current-output-directory) "test-audio.mp3")))
+   (ffmpeg-args-set-metadata
+    (make-ffmpeg-args (build-path (current-output-directory) "test-audio.mp3")
+                      #:asrc-path test-audio-path
+                      #:asrc-flags '())
+    'title
+    "Foo"))
 
   (check-equal?
    (parameterize ([current-output-format 'ogg])
      (track->ffmpeg-args test-track))
-   `("-y"
-     "-i"
-     ,test-audio-path
-     "-map_metadata" "-1" "-metadata:g" "TITLE=Foo"
-     ,(build-path (current-output-directory) "test-audio.ogg")))
+   (ffmpeg-args-set-metadata
+    (make-ffmpeg-args (build-path (current-output-directory) "test-audio.ogg")
+                      #:asrc-path test-audio-path
+                      #:asrc-flags '())
+    'TITLE
+    "Foo"))
 
   (define test-track-clipped
     (track #:audio (audio-clip test-audio-path 0.123 '1:40)
@@ -180,23 +180,22 @@
   (check-equal?
    (parameterize ([current-output-format 'ogg])
      (track->ffmpeg-args test-track-clipped))
-   `("-y"
-     "-ss" "0.123"
-     "-to" "100"
-     "-i"
-     ,test-audio-path
-     "-map_metadata" "-1" "-metadata:g" "TITLE=Foo"
-     ,(build-path (current-output-directory) "test-audio.ogg")))
+   (ffmpeg-args-set-metadata
+    (make-ffmpeg-args (build-path (current-output-directory) "test-audio.ogg")
+                      #:asrc-path test-audio-path
+                      #:asrc-flags '("-ss" "0.123" "-to" "100"))
+    'TITLE
+    "Foo"))
 
   (check-equal?
    (parameterize ([current-output-format 'ogg])
      (track->ffmpeg-args test-track-clipped*))
-   `("-y"
-     "-ss" "0.5"
-     "-i"
-     ,test-audio-path
-     "-map_metadata" "-1" "-metadata:g" "TITLE=Foo"
-     ,(build-path (current-output-directory) "test-audio.ogg")))
+   (ffmpeg-args-set-metadata
+    (make-ffmpeg-args (build-path (current-output-directory) "test-audio.ogg")
+                      #:asrc-path test-audio-path
+                      #:asrc-flags '("-ss" "0.5"))
+    'TITLE
+    "Foo"))
 
   ;; -----------------------------------
   ;; IO performing tests
