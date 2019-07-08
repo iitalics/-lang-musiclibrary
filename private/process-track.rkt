@@ -79,17 +79,13 @@
         [(source? asrc)
          (values asrc '())])))
 
-  (let* ([args
-          (make-ffmpeg-args (track-full-output-path trk)
-                            #:asrc-path src
-                            #:asrc-flags src-flags)]
-         [args ; add metadata
-          (for/fold ([args args])
-                    ([(k v) (in-track-metadata trk)])
-            (ffmpeg-args-set-metadata args
-                                      (metadata-key->symbol k (current-output-format))
-                                      v))])
-    args))
+  (for/fold ([args (make-ffmpeg-args (track-full-output-path trk)
+                                     #:asrc-path src
+                                     #:asrc-flags src-flags)])
+            ([m-e (in-track-metadata trk)])
+    (apply-metadata-entry m-e
+                          args
+                          #:format (current-output-format))))
 
 ;; (track-full-output-path trk) : path
 ;; trk : track

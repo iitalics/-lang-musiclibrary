@@ -16,7 +16,11 @@
   [title:     (string?                    . -> . metadata-entry?)]
   [album:     (string?                    . -> . metadata-entry?)]
   [artist:    (string?                    . -> . metadata-entry?)]
-  [track-num: (exact-nonnegative-integer? . -> . metadata-entry?)]))
+  [track-num: (exact-nonnegative-integer? . -> . metadata-entry?)]
+  [apply-metadata-entry ((metadata-entry?
+                          ffmpeg-args?
+                          #:format symbol?)
+                         . ->* . ffmpeg-args?)]))
 
 ; use '(require (submod "./metadata.rkt" metadata-entry-struct))' to get the accessors for
 ; the 'metadata-entry' struct (this way they are not publicly accessible)
@@ -25,12 +29,15 @@
    metadata-entry-key
    metadata-entry-value))
 
+(require
+ "./ffmpeg.rkt")
+
 (module+ test
   (require rackunit))
 
 ;; ---------------------------------------------------------------------------------------
-;; Keys
-;; --------------------
+;; Keys / Entries
+;; ----------
 
 (struct metadata-key [pretty]
   #:methods gen:custom-write
@@ -82,4 +89,17 @@
   (check-equal? (metadata-key->symbol +album 'ogg) 'ALBUM)
   (check-equal? (metadata-key->symbol +track-num 'mp3) 'track)
   (check-equal? (metadata-key->symbol +track-num 'ogg) 'TRACKNUMBER)
-  (check-equal? (metadata-key->symbol +title 'flac) #f))
+  (check-equal? (metadata-key->symbol +title 'flac) #f)
+
+  (check-equal? (title: "A") (meta: +title "A"))
+  (check-equal? (track-num: 5) (meta: +track-num "5")))
+
+;; ---------------------------------------------------------------------------------------
+;; Applying
+;; ----------
+
+;; metadata-entry ffmpeg-args symbol -> metadata-entry
+(define (apply-metadata-entry m-e f-a #:format fmt)
+  (ffmpeg-args-set-metadata f-a
+                            (metadata-key->symbol (metadata-entry-key m-e) fmt)
+                            (metadata-entry-value m-e)))

@@ -59,7 +59,7 @@
  (only-in racket/hash hash-union))
 
 (module+ test
-  (require rackunit racket/port))
+  (require rackunit racket/match racket/port))
 
 ;; ---------------------------------------------------------------------------------------
 ;; Utils
@@ -147,9 +147,9 @@
 (define (track-metadata trk k)
   (hash-ref (track-meta trk) k #f))
 
-;; track -> [sequenceof (values metadata-key string)]
+;; track -> [sequenceof metadata-entry]
 (define-syntax-rule (in-track-metadata trk)
-  (in-hash (track-meta trk)))
+  (in-list (hash-map (track-meta trk) meta:)))
 
 ;; (track* #:audio audio-src [#:output out-path] m-e ...)
 ;; audio-src : audio-source
@@ -215,7 +215,12 @@
 
   (check-exn #px"no title"
              (λ ()
-               (track* #:audio (P "...")))))
+               (track* #:audio (P "..."))))
+
+  (check-match
+   (for/list ([m (in-track-metadata t3)]) m)
+   (list-no-order (== (title: "ccc"))
+                  (== (track-num: 1)))))
 
 ;; ---------------------------------------------------------------------------------------
 ;; Track helpers
