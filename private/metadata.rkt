@@ -19,7 +19,11 @@
   [apply-metadata-entry ((metadata-entry?
                           ffmpeg-args?
                           #:format symbol?)
-                         . ->* . ffmpeg-args?)]))
+                         . ->* . ffmpeg-args?)])
+ ;; ---
+ ;; macros
+ define-metadata-key
+ define-simple-metadata-key)
 
 ; use '(require (submod "./metadata.rkt" metadata-entry-struct))' to get the accessors for
 ; the 'metadata-entry' struct (this way they are not publicly accessible)
