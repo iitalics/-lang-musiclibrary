@@ -188,10 +188,9 @@
   (or (track-metadata t +title)
       "(no title)"))
 
-;; track-number -> (or string #f)
+;; track-number -> (or nat #f)
 (define (track-number t)
-  (cond [(track-metadata t +track-num) => string->number]
-        [else #f]))
+  (track-metadata t +track-num))
 
 ;; =====================================
 

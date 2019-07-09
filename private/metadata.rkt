@@ -6,13 +6,12 @@
  ;; keys
  prop:metadata-key
  metadata-key?
- ; +title +album +track-num +artist
+ +title +album +track-num +artist
  ;; ---
  ;; entries
  metadata-entry?
- #;
  (contract-out
-  [meta:      (metadata-key? string?      . -> . metadata-entry?)]
+  [meta:      (metadata-key? any/c        . -> . metadata-entry?)]
   [title:     (string?                    . -> . metadata-entry?)]
   [album:     (string?                    . -> . metadata-entry?)]
   [artist:    (string?                    . -> . metadata-entry?)]
@@ -30,19 +29,26 @@
    metadata-entry-value))
 
 (require
- "./ffmpeg.rkt")
+ "./ffmpeg.rkt"
+ syntax/parse/define
+ (for-syntax racket/base
+             racket/syntax))
 
 (module+ test
   (require rackunit))
 
 ;; ---------------------------------------------------------------------------------------
-;; Types
+;; Structs / properties
 ;; ----------
 
 ;; prop:metadata-key : struct-type-property
 ;; where
 ;; metadata-key-ref : self -> (or [self any -> metadata-entry])
 ;;                                [self ffmpeg-args symbol any -> ffmpeg-args])
+;; --
+;; Implement this property to create a new kind of metadata key. It is advised to use
+;; 'define-metadata-key' or 'define-simple-metadata-key' instead of using this property
+;; directly.
 (define-values [prop:metadata-key metadata-key? metadata-key-ref]
   (make-struct-type-property 'metadata-key
                              #f
@@ -68,11 +74,9 @@
   (define proc (metadata-key-ref m-k))
   (cond
     [(procedure-arity-includes? proc 2)
-     (define m-e (proc m-k val))
-     (apply-metadata-key (metadata-entry-key m-e)
-                         f-a
-                         #:value (metadata-entry-value m-e)
-                         #:format fmt)]
+     (apply-metadata-entry (proc m-k val)
+                           f-a
+                           #:format fmt)]
     [(procedure-arity-includes? proc 4)
      (proc m-k f-a fmt val)]
     [else
@@ -89,56 +93,131 @@
                       #:value (metadata-entry-value m-e)
                       #:format fmt))
 
-(module+ test
-
-  (struct simple-key [stuff]
-    #:property prop:metadata-key
-    (λ (self f-a fmt val)
-      `(SIMPLE ,f-a ,fmt ,val ,(simple-key-stuff self))))
-
-  (struct doubling-key [stuff]
-    #:property prop:metadata-key
-    (λ (self val)
-      (meta: (simple-key (* 2 (doubling-key-stuff self)))
-             (* 2 val))))
-
-  (let ([args0 (make-ffmpeg-args (build-path "O")
-                                 #:asrc-path (build-path "A")
-                                 #:asrc-flags '())])
-
-    (check-equal? (apply-metadata-key (simple-key 6)
-                                      args0
-                                      #:value 5
-                                      #:format 'mp3)
-                  `(SIMPLE ,args0 mp3 5 6))
-
-    (check-equal? (apply-metadata-key (doubling-key 6)
-                                      args0
-                                      #:value 5
-                                      #:format 'ogg)
-                  `(SIMPLE ,args0 ogg 10 12))))
-
 ;; ---------------------------------------------------------------------------------------
 ;; Key defining helpers
 ;; ----------
 
-#;
-(define-metadata-keys metadata-key->symbol
-  [+title     title:     ([mp3 'title] [ogg 'TITLE])]
-  [+album     album:     ([mp3 'album] [ogg 'ALBUM])]
-  [+artist    artist:    ([mp3 'album_artist] [ogg 'ARTIST])]
-  [+track-num track-num:* ([mp3 'track] [ogg 'TRACKNUMBER])])
+;; value : any
+(struct constant-write [value]
+  #:methods gen:custom-write
+  [(define (write-proc self port mode)
+     (write (constant-write-value self) port))])
 
-#;
-(define (track-num: n)
-  (track-num:* (format "~a" n)))
+;; ----
 
-#;
+(begin-for-syntax
+  (define-syntax-class base-id
+    [pattern x:id
+             #:with k (format-id #'x "+~a" #'x)
+             #:with c (format-id #'x "~a:" #'x)]))
+
+(define-simple-macro (define-key+constructor name:base-id
+                       pre-body ...
+                       key-expr)
+  (define-values [name.k name.c]
+    (let ()
+      pre-body ...
+      (define key key-expr)
+      (values key (λ (v) (meta: key v))))))
+
+;; --------------------------------------------------------------------------------
+;; define-metadata-key
+;; --------------------
+
+;; (define-metadata-key (<base-name-id> <args>)
+;;   <body> ...)
+;;
+;; <args> ::= <val-id>
+;;          | <ffmpeg-args-id> <fmt-id> <val-id>
+(define-simple-macro (define-metadata-key (name:base-id arg:id ...)
+                       body ...)
+  #:fail-unless (member (length (attribute arg)) '(1 3))
+  (format "expects either 1 or 3 arguments, got ~a" (length (attribute arg)))
+
+  (define-key+constructor name
+    (struct key constant-write []
+      #:property prop:metadata-key
+      (λ (_ arg ...) body ...))
+
+    (key 'name.k)))
+
+;; ==========
+
+(module+ test
+
+  (define args0
+    (make-ffmpeg-args (build-path "O")
+                      #:asrc-path (build-path "A")
+                      #:asrc-flags '()))
+
+  (define-metadata-key (as-list f-a fmt val)
+    `(,f-a ,fmt ,val))
+
+  (define-metadata-key (as-list-doubled val)
+    (as-list: (* 2 val)))
+
+  (check-equal? (apply-metadata-entry (as-list: 5) args0 #:format 'mp3)
+                `(,args0 mp3 5))
+
+  (check-equal? (apply-metadata-entry (as-list-doubled: 5) args0 #:format 'ogg)
+                `(,args0 ogg 10)))
+
+;; --------------------------------------------------------------------------------
+;; define-simple-metadata-key
+;; --------------------
+
+;; (define-simple-metadata-key <base-name-id>
+;;   [<fmt> <symbol-expr>]
+;;   ...
+;;   <option>
+;;   ...)
+;;
+;; <fmt>    ::= <id>
+;; <option> ::= #:->string <to-string-expr>
+;; --
+(define-simple-macro (define-simple-metadata-key name:base-id
+                       [fmt:id fmt->sym-expr:expr]
+                       ...
+                       {~optional {~seq #:->string ->s-expr:expr}
+                                  #:defaults ([->s-expr #'values])})
+  (define-key+constructor name
+    (define fmt=>sym (make-hasheq (list (cons 'fmt fmt->sym-expr) ...)))
+    (define (fmt->sym f) (hash-ref fmt=>sym f #f))
+
+    (simple-key 'name.k fmt->sym ->s-expr)))
+
+;; format->symbol : symbol -> (or symbol #f)
+;; value->string  : any -> string
+(struct simple-key constant-write [format->symbol value->string]
+  #:property prop:metadata-key
+  (λ (self f-a fmt val)
+    (ffmpeg-args-set-metadata f-a
+                              ((simple-key-format->symbol self) fmt)
+                              ((simple-key-value->string self) val))))
+
+;; ---
+;; Standard metadata
+
+(define-simple-metadata-key title     [mp3 'title] [ogg 'TITLE])
+(define-simple-metadata-key album     [mp3 'album] [ogg 'ALBUM])
+(define-simple-metadata-key artist    [mp3 'album_artist] [ogg 'ARTIST])
+(define-simple-metadata-key track-num [mp3 'track] [ogg 'TRACKNUMBER]
+  #:->string number->string)
+
+;; ==========
+
 (module+ test
   (check-equal? (title: "A") (meta: +title "A"))
-  (check-equal? (track-num: 5) (meta: +track-num "5")))
+  (check-equal? (track-num: 3) (meta: +track-num 3))
 
-#;
-(ffmpeg-args-set-metadata f-a
-                          (metadata-key->symbol (metadata-entry-key m-e) fmt)
-                          (metadata-entry-value m-e))
+  (check-equal? (format "~a" +title) "+title")
+  (check-equal? (format "~a" (title: "x")) "(meta: +title \"x\")")
+
+  (check-equal? (apply-metadata-entry (artist: "me") args0 #:format 'mp3)
+                (ffmpeg-args-set-metadata args0 'album_artist "me"))
+
+  (check-equal? (apply-metadata-entry (title: "foo") args0 #:format 'ogg)
+                (ffmpeg-args-set-metadata args0 'TITLE "foo"))
+
+  (check-equal? (apply-metadata-entry (track-num: 3) args0 #:format 'ogg)
+                (ffmpeg-args-set-metadata args0 'TRACKNUMBER "3")))
