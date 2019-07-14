@@ -6,7 +6,7 @@
  ;; keys
  prop:metadata-key
  metadata-key?
- +title +album +track-num +artist
+ +title +album +track-num +artist +cover-art
  ;; ---
  ;; entries
  metadata-entry?
@@ -16,6 +16,11 @@
   [album:     (string?                    . -> . metadata-entry?)]
   [artist:    (string?                    . -> . metadata-entry?)]
   [track-num: (exact-nonnegative-integer? . -> . metadata-entry?)]
+
+  [cover-art: (path?                      . -> . metadata-entry?)]
+  ;; BUG: 'path?' should be 'source?'; but we need to refactor this cyclic dependecy on
+  ;; ./tracks-albums.rkt
+
   [apply-metadata-entry ((metadata-entry?
                           ffmpeg-args?
                           #:format symbol?)
@@ -205,6 +210,14 @@
 (define-simple-metadata-key artist    [mp3 'album_artist] [ogg 'ARTIST])
 (define-simple-metadata-key track-num [mp3 'track] [ogg 'TRACKNUMBER]
   #:->string number->string)
+
+;; ---
+;; More metadata
+
+;; (cover-art: img-src) : metadata-entry
+;; img-src : source
+(define-metadata-key (cover-art ffm-args fmt img-src)
+  (ffmpeg-args-add-input ffm-args img-src '()))
 
 ;; ==========
 

@@ -3,10 +3,14 @@
 (define test-audio
   (build-path "test-audio.ogg"))
 
+(define test-cover
+  (build-path "lain.png"))
+
 (define t
   (track #:audio test-audio
          #:output "test-audio"
-         (title: "Test")))
+         (title: "Test")
+         (cover-art: test-cover)))
 
 (album "The Test" t)
 
