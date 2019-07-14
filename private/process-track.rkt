@@ -19,7 +19,8 @@
  "./tracks-albums.rkt"
  "./ffmpeg.rkt"
  "./metadata.rkt"
- racket/format)
+ racket/format
+ threading)
 
 (module+ test
   (require rackunit))
@@ -67,25 +68,34 @@
 ;; trk : track
 (define (track->ffmpeg-args trk)
 
-  (define-values [src src-flags]
-    (let ([asrc (track-audio-source trk)])
-      (cond
-        [(audio-clip? asrc)
-         (define ss (audio-clip-start/ms asrc))
-         (define to (audio-clip-end/ms asrc))
-         (values (audio-clip-source asrc)
-                 (list* "-ss" (~r (/ ss 1000))
-                        (if to (list "-to" (~r (/ to 1000))) '())))]
-        [(source? asrc)
-         (values asrc '())])))
+  (define (add-audio-src args)
+    (define asrc (track-audio-source trk))
+    (cond
+      [(audio-clip? asrc)
+       (define ss (audio-clip-start/ms asrc))
+       (define to (audio-clip-end/ms asrc))
+       (ffmpeg-args-add-input args
+                              (audio-clip-source asrc)
+                              (list* "-ss"
+                                     (~r (/ ss 1000))
+                                     (if to
+                                       `("-to" ,(~r (/ to 1000)))
+                                       '())))]
 
-  (for/fold ([args (make-ffmpeg-args (track-full-output-path trk)
-                                     #:asrc-path src
-                                     #:asrc-flags src-flags)])
-            ([m-e (in-track-metadata trk)])
-    (apply-metadata-entry m-e
-                          args
-                          #:format (current-output-format))))
+      [(source? asrc)
+       (ffmpeg-args-add-input args asrc '())]))
+
+  (define (add-metadata args)
+    (for/fold ([args args])
+              ([m-e (in-track-metadata trk)])
+      (apply-metadata-entry m-e
+                            args
+                            #:format (current-output-format))))
+
+  (~> (track-full-output-path trk)
+      make-ffmpeg-args
+      add-audio-src
+      add-metadata))
 
 ;; (track-full-output-path trk) : path
 ;; trk : track
@@ -146,22 +156,16 @@
   (check-equal?
    (parameterize ([current-output-format 'mp3])
      (track->ffmpeg-args test-track))
-   (ffmpeg-args-set-metadata
-    (make-ffmpeg-args (build-path (current-output-directory) "test-audio.mp3")
-                      #:asrc-path test-audio-path
-                      #:asrc-flags '())
-    'title
-    "Foo"))
+   (~> (make-ffmpeg-args (build-path (current-output-directory) "test-audio.mp3"))
+       (ffmpeg-args-add-input test-audio-path '())
+       (ffmpeg-args-set-metadata _ 'title "Foo")))
 
   (check-equal?
    (parameterize ([current-output-format 'ogg])
      (track->ffmpeg-args test-track))
-   (ffmpeg-args-set-metadata
-    (make-ffmpeg-args (build-path (current-output-directory) "test-audio.ogg")
-                      #:asrc-path test-audio-path
-                      #:asrc-flags '())
-    'TITLE
-    "Foo"))
+   (~> (make-ffmpeg-args (build-path (current-output-directory) "test-audio.ogg"))
+       (ffmpeg-args-add-input test-audio-path '())
+       (ffmpeg-args-set-metadata _ 'TITLE "Foo")))
 
   (define test-track-clipped
     (track #:audio (audio-clip test-audio-path 0.123 '1:40)
@@ -176,22 +180,16 @@
   (check-equal?
    (parameterize ([current-output-format 'ogg])
      (track->ffmpeg-args test-track-clipped))
-   (ffmpeg-args-set-metadata
-    (make-ffmpeg-args (build-path (current-output-directory) "test-audio.ogg")
-                      #:asrc-path test-audio-path
-                      #:asrc-flags '("-ss" "0.123" "-to" "100"))
-    'TITLE
-    "Foo"))
+   (~> (make-ffmpeg-args (build-path (current-output-directory) "test-audio.ogg"))
+       (ffmpeg-args-add-input test-audio-path '("-ss" "0.123" "-to" "100"))
+       (ffmpeg-args-set-metadata _ 'TITLE "Foo")))
 
   (check-equal?
    (parameterize ([current-output-format 'ogg])
      (track->ffmpeg-args test-track-clipped*))
-   (ffmpeg-args-set-metadata
-    (make-ffmpeg-args (build-path (current-output-directory) "test-audio.ogg")
-                      #:asrc-path test-audio-path
-                      #:asrc-flags '("-ss" "0.5"))
-    'TITLE
-    "Foo"))
+   (~> (make-ffmpeg-args (build-path (current-output-directory) "test-audio.ogg"))
+       (ffmpeg-args-add-input test-audio-path '("-ss" "0.5"))
+       (ffmpeg-args-set-metadata _ 'TITLE "Foo")))
 
   ;; -----------------------------------
   ;; IO performing tests

@@ -59,7 +59,7 @@
                              '()))
 
 ;; key : metadata-key
-;; val : any
+;; value : any
 (struct metadata-entry [key value]
   #:transparent
   #:extra-constructor-name meta:
@@ -150,9 +150,7 @@
 (module+ test
 
   (define args0
-    (make-ffmpeg-args (build-path "O")
-                      #:asrc-path (build-path "A")
-                      #:asrc-flags '()))
+    (make-ffmpeg-args (build-path "O")))
 
   (define-metadata-key (as-list f-a fmt val)
     `(,f-a ,fmt ,val))

@@ -8,7 +8,7 @@
   (struct (exn:fail:ffmpeg exn:fail)
     ([message string?]
      [continuation-marks continuation-mark-set?]
-     [args (listof (or/c string? bytes? path?))]
+     [args (listof string?)]
      [status-code exact-integer?]
      [stdout input-port?]
      [stderr input-port?])))
@@ -16,10 +16,8 @@
  ; args
  ffmpeg-args?
  (contract-out
-  [make-ffmpeg-args ((path?
-                      #:asrc-path path?
-                      #:asrc-flags (listof string?))
-                     . ->* . ffmpeg-args?)]
+  [make-ffmpeg-args (path? . -> . ffmpeg-args?)]
+  [ffmpeg-args-add-input (ffmpeg-args? path? (listof string?) . -> . ffmpeg-args?)]
   [ffmpeg-args-set-metadata (ffmpeg-args? symbol? string? . -> . ffmpeg-args?)])
  ; ---
  ; exec-ffmpeg
@@ -28,6 +26,7 @@
   [exec-ffmpeg (ffmpeg-args? . -> . (values input-port? input-port?))]))
 
 (require
+ threading
  racket/format)
 
 (module+ test
@@ -52,69 +51,74 @@
 ;; overwrite? : boolean
 ;; output-path : path
 ;; metadata : [listof (cons symbol string)]
-;; asrc-path : path
-;; asrc-flags : [listof string]
-(struct ffmpeg-args [overwrite? output-path metadata asrc-path asrc-flags]
+;; inputs : [listof [listof string]]
+(struct ffmpeg-args [overwrite? output-path metadata inputs]
   #:transparent
   #:constructor-name mk-ffmpeg-args)
 
-(define (make-ffmpeg-args output-path
-                          #:asrc-path asrc-path
-                          #:asrc-flags asrc-flags)
-  (mk-ffmpeg-args #t output-path '() asrc-path asrc-flags))
+(define (make-ffmpeg-args output-path)
+  (mk-ffmpeg-args #t output-path '() '()))
 
-;; (ffmpeg-args-set-metadata as k v) : ffmpeg-args
-;; as : ffmpeg-args
+;; (ffmpeg-args-set-metadata f-a k v) : ffmpeg-args
+;; f-a : ffmpeg-args
 ;; k : symbol
 ;; v : string
-(define (ffmpeg-args-set-metadata as k v)
-  (struct-copy ffmpeg-args as
-    [metadata (cons (cons k v) (ffmpeg-args-metadata as))]))
+(define (ffmpeg-args-set-metadata f-a k v)
+  (struct-copy ffmpeg-args f-a
+    [metadata (cons (cons k v) (ffmpeg-args-metadata f-a))]))
+
+;; (ffmpeg-args-add-input f-a inp-path inp-flags) : ffmpeg-args
+;; f-a : ffmpeg-args
+;; inp-path : path?
+;; inp-flags : [listof string]
+(define (ffmpeg-args-add-input f-a inp-path inp-flags)
+  (struct-copy ffmpeg-args f-a
+    [inputs (append (ffmpeg-args-inputs f-a)
+                    (list `(,@inp-flags ,"-i" ,(path->string inp-path))))]))
 
 ;; ffmpeg-args -> [listof string]
-(define (ffmpeg-args->strings as)
-  `(,@(if (ffmpeg-args-overwrite? as) '("-y") '())
-    ; audio src
-    ,@(ffmpeg-args-asrc-flags as)
-    "-i" ,(path->string (ffmpeg-args-asrc-path as))
+(define (ffmpeg-args->strings f-a)
+  `(,@(if (ffmpeg-args-overwrite? f-a) '("-y") '())
+    ; input sources
+    ,@(apply append (ffmpeg-args-inputs f-a))
     ; metdata
     "-map_metadata" "-1" ; (prevents metadata from being copied over from input streams)
     ,@(for/fold ([args '()])
-                ([k/v (in-list (ffmpeg-args-metadata as))])
+                ([k/v (in-list (ffmpeg-args-metadata f-a))])
         (list* "-metadata:g" (format "~a=~a" (car k/v) (cdr k/v)) args))
     ; output
-    ,(path->string (ffmpeg-args-output-path as))))
+    ,(path->string (ffmpeg-args-output-path f-a))))
 
 (module+ test
-  (check-equal? (ffmpeg-args->strings
-                 (make-ffmpeg-args (build-path "OUT")
-                                   #:asrc-path (build-path "SRC")
-                                   #:asrc-flags '("-ss" "100")))
+  (check-equal? (~> (make-ffmpeg-args (build-path "OUT"))
+                    ffmpeg-args->strings)
+                '("-y"
+                  "-map_metadata" "-1"
+                  "OUT"))
+
+  (check-equal? (~> (make-ffmpeg-args (build-path "OUT"))
+                    (ffmpeg-args-add-input _ (build-path "SRC") '("-ss" "100"))
+                    ffmpeg-args->strings)
                 '("-y"
                   "-ss" "100" "-i" "SRC"
                   "-map_metadata" "-1"
                   "OUT"))
 
-  (check-equal? (ffmpeg-args->strings
-                 (ffmpeg-args-set-metadata
-                  (make-ffmpeg-args (build-path "OUT")
-                                    #:asrc-path (build-path "SRC")
-                                    #:asrc-flags '("-ss" "100"))
-                  'foo "x"))
+  (check-equal? (~> (make-ffmpeg-args (build-path "OUT"))
+                    (ffmpeg-args-add-input _ (build-path "SRC") '("-ss" "100"))
+                    (ffmpeg-args-set-metadata _ 'foo "x")
+                    ffmpeg-args->strings)
                 '("-y"
                   "-ss" "100" "-i" "SRC"
                   "-map_metadata" "-1"
                   "-metadata:g" "foo=x"
                   "OUT"))
 
-  (check-equal? (ffmpeg-args->strings
-                 (ffmpeg-args-set-metadata
-                  (ffmpeg-args-set-metadata
-                   (make-ffmpeg-args (build-path "OUT")
-                                     #:asrc-path (build-path "SRC")
-                                     #:asrc-flags '("-ss" "100"))
-                   'foo "x")
-                  'bar "y"))
+  (check-equal? (~> (make-ffmpeg-args (build-path "OUT"))
+                    (ffmpeg-args-add-input _ (build-path "SRC") '("-ss" "100"))
+                    (ffmpeg-args-set-metadata _ 'foo "x")
+                    (ffmpeg-args-set-metadata _ 'bar "y")
+                    ffmpeg-args->strings)
                 '("-y"
                   "-ss" "100" "-i" "SRC"
                   "-map_metadata" "-1"
@@ -125,7 +129,7 @@
 ;; Exec
 ;; ----------
 
-;; (exec-ffmpeg/raw cmdline-args) : input-port input-port
+;; (exec-ffmpeg/raw args) : input-port input-port
 ;; (exec-ffmpeg fa) : input-port input-port
 ;; args : [listof string]
 ;; fa : ffmpeg-args
