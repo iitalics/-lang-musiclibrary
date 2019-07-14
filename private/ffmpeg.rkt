@@ -26,11 +26,14 @@
   [exec-ffmpeg (ffmpeg-args? . -> . (values input-port? input-port?))]))
 
 (require
- threading
  racket/format)
 
 (module+ test
-  (require rackunit racket/port racket/function))
+  (require
+   rackunit
+   threading
+   racket/port
+   racket/function))
 
 ;; ---------------------------------------------------------------------------------------
 
