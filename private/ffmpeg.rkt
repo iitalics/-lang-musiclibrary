@@ -76,14 +76,20 @@
 ;; inp-flags : [listof string]
 (define (ffmpeg-args-add-input f-a inp-path inp-flags)
   (struct-copy ffmpeg-args f-a
-    [inputs (append (ffmpeg-args-inputs f-a)
-                    (list `(,@inp-flags ,"-i" ,(path->string inp-path))))]))
+    [inputs (cons `(,@inp-flags ,"-i" ,(path->string inp-path))
+                  (ffmpeg-args-inputs f-a))]))
 
 ;; ffmpeg-args -> [listof string]
 (define (ffmpeg-args->strings f-a)
   `(,@(if (ffmpeg-args-overwrite? f-a) '("-y") '())
     ; input sources
-    ,@(apply append (ffmpeg-args-inputs f-a))
+    ,@(for/fold ([args '()])
+                ([ss (in-list (ffmpeg-args-inputs f-a))])
+        (append ss args))
+    ,@(for/fold ([args '()])
+                ([i (in-naturals)]
+                 [_ (in-list (ffmpeg-args-inputs f-a))])
+        (list* "-map" (~a i) args))
     ; metdata
     "-map_metadata" "-1" ; (prevents metadata from being copied over from input streams)
     ,@(for/fold ([args '()])
@@ -100,10 +106,21 @@
                   "OUT"))
 
   (check-equal? (~> (make-ffmpeg-args (build-path "OUT"))
+                    (ffmpeg-args-add-input _ (build-path "SRC-1") '())
+                    (ffmpeg-args-add-input _ (build-path "SRC-2") '())
+                    ffmpeg-args->strings)
+                '("-y"
+                  "-i" "SRC-1" "-i" "SRC-2"
+                  "-map" "1" "-map" "0"
+                  "-map_metadata" "-1"
+                  "OUT"))
+
+  (check-equal? (~> (make-ffmpeg-args (build-path "OUT"))
                     (ffmpeg-args-add-input _ (build-path "SRC") '("-ss" "100"))
                     ffmpeg-args->strings)
                 '("-y"
                   "-ss" "100" "-i" "SRC"
+                  "-map" "0"
                   "-map_metadata" "-1"
                   "OUT"))
 
@@ -113,6 +130,7 @@
                     ffmpeg-args->strings)
                 '("-y"
                   "-ss" "100" "-i" "SRC"
+                  "-map" "0"
                   "-map_metadata" "-1"
                   "-metadata:g" "foo=x"
                   "OUT"))
@@ -124,6 +142,7 @@
                     ffmpeg-args->strings)
                 '("-y"
                   "-ss" "100" "-i" "SRC"
+                  "-map" "0"
                   "-map_metadata" "-1"
                   "-metadata:g" "foo=x" "-metadata:g" "bar=y"
                   "OUT")))
