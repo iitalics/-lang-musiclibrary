@@ -1,3 +1,3 @@
 #lang info
 (define collection "musiclibrary")
-(define deps '("base"))
+(define deps '("base" "threading-lib"))
