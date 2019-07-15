@@ -103,7 +103,7 @@
       [(source:fs? src)
        (define path (source:fs-path src))
        (unless (file-exists? path)
-         (define msg (format "source path ~s not found" (path->string path)))
+         (define msg (format "source file ~s not found" (path->string path)))
          (raise (make-exn:fail:filesystem msg (current-continuation-marks))))
        path])))
 
