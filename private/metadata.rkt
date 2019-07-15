@@ -214,9 +214,8 @@
 ;; (cover-art: img-src) : metadata-entry
 ;; img-src : source
 (define-metadata-key (cover-art ffm-args fmt img-src)
-  (ffmpeg-args-add-input ffm-args
-                         (source-path img-src)
-                         '()))
+  (define img-path (source-fetch img-src))
+  (ffmpeg-args-add-input ffm-args img-path '()))
 
 ;; ==========
 
@@ -236,5 +235,12 @@
   (check-equal? (apply-metadata-entry (track-num: 3) args0 #:format 'ogg)
                 (ffmpeg-args-set-metadata args0 'TRACKNUMBER "3"))
 
-  (check-equal? (apply-metadata-entry (cover-art: (fs "foo.png")) args0 #:format 'ogg)
-                (ffmpeg-args-add-input args0 (build-path "foo.png") '())))
+  (define eg-path (build-path "../example/lain.png"))
+  (check-equal? (apply-metadata-entry (cover-art: (fs eg-path)) args0 #:format 'ogg)
+                (ffmpeg-args-add-input args0 eg-path '()))
+
+  (check-exn exn:fail:fetch?
+             (λ ()
+               (apply-metadata-entry (cover-art: (fs "../example/doesnt-exist.png"))
+                                     args0
+                                     #:format 'ogg))))

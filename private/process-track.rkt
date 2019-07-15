@@ -75,8 +75,9 @@
       [(audio-clip? asrc)
        (define ss (audio-clip-start/ms asrc))
        (define to (audio-clip-end/ms asrc))
+       (define src-path (source-fetch (audio-clip-source asrc)))
        (ffmpeg-args-add-input args
-                              (source-path (audio-clip-source asrc))
+                              src-path
                               (list* "-ss"
                                      (~r (/ ss 1000))
                                      (if to
@@ -84,8 +85,9 @@
                                        '())))]
 
       [(source? asrc)
+       (define src-path (source-fetch asrc))
        (ffmpeg-args-add-input args
-                              (source-path asrc)
+                              src-path
                               '())]))
 
   (define (add-metadata args)
