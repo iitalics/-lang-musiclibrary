@@ -16,11 +16,7 @@
   [album:     (string?                    . -> . metadata-entry?)]
   [artist:    (string?                    . -> . metadata-entry?)]
   [track-num: (exact-nonnegative-integer? . -> . metadata-entry?)]
-
-  [cover-art: (path?                      . -> . metadata-entry?)]
-  ;; BUG: 'path?' should be 'source?'; but we need to refactor this cyclic dependecy on
-  ;; ./tracks-albums.rkt
-
+  [cover-art: (source?                    . -> . metadata-entry?)]
   [apply-metadata-entry ((metadata-entry?
                           ffmpeg-args?
                           #:format symbol?)
@@ -39,6 +35,7 @@
 
 (require
  "./ffmpeg.rkt"
+ "./source.rkt"
  syntax/parse/define
  (for-syntax racket/base
              racket/syntax))
@@ -217,7 +214,9 @@
 ;; (cover-art: img-src) : metadata-entry
 ;; img-src : source
 (define-metadata-key (cover-art ffm-args fmt img-src)
-  (ffmpeg-args-add-input ffm-args img-src '()))
+  (ffmpeg-args-add-input ffm-args
+                         (source-path img-src)
+                         '()))
 
 ;; ==========
 
@@ -235,4 +234,7 @@
                 (ffmpeg-args-set-metadata args0 'TITLE "foo"))
 
   (check-equal? (apply-metadata-entry (track-num: 3) args0 #:format 'ogg)
-                (ffmpeg-args-set-metadata args0 'TRACKNUMBER "3")))
+                (ffmpeg-args-set-metadata args0 'TRACKNUMBER "3"))
+
+  (check-equal? (apply-metadata-entry (cover-art: (fs "foo.png")) args0 #:format 'ogg)
+                (ffmpeg-args-add-input args0 (build-path "foo.png") '())))

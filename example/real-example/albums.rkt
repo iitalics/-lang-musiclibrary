@@ -6,7 +6,7 @@
   (album
    "1000 gecs"
    (artist: "100 gecs")
-   (cover-art: (build-path "./SOURCES/1000-Gecs.jpg"))
+   (cover-art: (fs "./SOURCES/1000-Gecs.jpg"))
    (sliced-tracks
     #:audio (fs "./SOURCES/1000-Gecs.m4a")
     "745 Sticky"               0:00
@@ -24,7 +24,7 @@
   (album
    "Exmilitary"
    (artist: "Death Grips")
-   (cover-art: (build-path "./SOURCES/Exmilitary.webp"))
+   (cover-art: (fs "./SOURCES/Exmilitary.webp"))
    (sliced-tracks
     #:audio (fs "./SOURCES/Exmilitary.ogg")
     "Beware"                        0:00
