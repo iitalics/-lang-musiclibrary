@@ -33,6 +33,7 @@
   [audio-clip-end      (audio-clip? . -> . (or/c flonum? #f))]))
 
 (require
+ racket/path
  "./time-value.rkt"
  (only-in racket/function curry))
 
@@ -65,13 +66,25 @@
 ;; --
 ;; construct a source from a local file on the filesystem
 (define (fs p)
-  (source:fs (build-path p)))
+  ; (simplify-path .. #f) means we don't hit the filesystem; this constructor shouldn't
+  ; error or even do IO so it's important that #f is supplied.
+  (source:fs (simplify-path (build-path p) #f)))
 
 ;; (source->sexp src) : s-exp
 ;; src : source
 (define (source->sexp src)
   (cond
-    [(source:fs? src) `(fs ,(path->string (source:fs-path src)))]))
+    [(source:fs? src)
+     `(fs ,(path->string (source:fs-path src)))]))
+
+(module+ test
+
+  ;; this test shouldn't pass if we want to be able to search in multiple directories. but
+  ;; then it makes these two paths considered unique
+  ;; (check-equal? (fs "../private/a") (fs "a"))
+
+  (check-equal? (format "~s" (fs "foo")) "(fs \"foo\")")
+  (check-equal? (fs "foo/../a") (fs "a")))
 
 ;; ---------------------------------------------------------------------------------------
 ;; Fetching sources
@@ -101,7 +114,8 @@
                   [exn:fail? (curry reraise-fetch-exn src)])
     (cond
       [(source:fs? src)
-       (define path (source:fs-path src))
+       ; TODO: search multiple directories for the absolute path?
+       (define path (normalize-path (source:fs-path src)))
        (unless (file-exists? path)
          (define msg (format "source file ~s not found" (path->string path)))
          (raise (make-exn:fail:filesystem msg (current-continuation-marks))))
@@ -110,17 +124,14 @@
 ;; ==========================================
 
 (module+ test
-  (check-equal? (source-fetch (fs (build-path "../example/lain.png")))
-                (build-path "../example/lain.png"))
-
   (check-equal? (source-fetch (fs "../example/lain.png"))
-                (build-path "../example/lain.png"))
+                (normalize-path (build-path "../example/lain.png")))
 
   (for ([bad-path (in-list '("../example/doesnt-exist.png"
                              "../example"))])
     (check-exn (λ (e) (and (exn:fail:fetch? e)
                            (exn:fail:filesystem? (exn:fail:fetch-reason e))
-                           (regexp-match? #px"reason: source path .* not found"
+                           (regexp-match? #px"reason: source file .* not found"
                                           (exn-message e))))
                (λ () (source-fetch (fs bad-path))))))
 
