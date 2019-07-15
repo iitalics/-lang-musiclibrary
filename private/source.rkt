@@ -47,12 +47,13 @@
 ;; --
 
 (struct source []
+  #:transparent
   #:methods gen:custom-write
   [(define (write-proc src port mode)
      (write (source->sexp src) port))])
 
 ;; path : path
-(struct source:fs source [path])
+(struct source:fs source [path] #:transparent)
 
 ;; (fs p) : source
 ;; p : path-string
