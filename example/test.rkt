@@ -1,7 +1,7 @@
 #lang musiclibrary
 
 (define test-audio
-  (build-path "test-audio.ogg"))
+  (fs (build-path "test-audio.ogg")))
 
 (define test-cover
   (build-path "lain.png"))

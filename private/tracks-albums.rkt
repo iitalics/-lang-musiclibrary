@@ -19,23 +19,6 @@
   [album-title (album? . -> . string?)]
   [album-tracks (album? . -> . (listof track?))])
  ; ---
- ; audio
- source? audio-source? audio-clip?
- (contract-out
-  [rename audio-clip* audio-clip
-          ((source? time-value?) ; src start
-           ((or/c time-value? #f)) ; end
-           . ->* . audio-clip?)]
-  [make-audio-clip (source? ; src
-                    exact-nonnegative-integer? ; start
-                    (or/c exact-nonnegative-integer? #f) ;end
-                    . -> . audio-clip?)]
-  [audio-clip-source   (audio-clip? . -> . source?)]
-  [audio-clip-start/ms (audio-clip? . -> . exact-nonnegative-integer?)]
-  [audio-clip-start    (audio-clip? . -> . flonum?)]
-  [audio-clip-end/ms   (audio-clip? . -> . (or/c exact-nonnegative-integer? #f))]
-  [audio-clip-end      (audio-clip? . -> . (or/c flonum? #f))])
- ; ---
  ; track
  track?
  in-track-metadata
@@ -53,6 +36,7 @@
 
 (require
  "./time-value.rkt"
+ "./source.rkt"
  "./metadata.rkt"
  (submod "./metadata.rkt" metadata-entry-struct)
  (only-in racket/list range)
@@ -73,59 +57,6 @@
 (module+ test
   (check-equal? (rev-append '(3 2 1) '(4 5 6))
                 '(1 2 3 4 5 6)))
-
-;; ---------------------------------------------------------------------------------------
-;; Audio sources/clips
-;; --------------------
-
-;; source ::= path
-(define (source? x)
-  (path? x))
-
-;; audio-source ::= source | audio-clip
-(define (audio-source? x)
-  (or (source? x)
-      (audio-clip? x)))
-
-;; source : source
-;; start/ms : nat
-;; end/ms : (or nat #f)
-(struct audio-clip [source start/ms end/ms]
-  #:transparent
-  #:extra-constructor-name make-audio-clip)
-
-;; (audio-clip* src start [end]) : audio-clip
-;; src : source
-;; start : time-value
-;; end : (or time-value #f)
-(define (audio-clip** src start [end #f])
-  (make-audio-clip src
-                   (time-value->milliseconds start)
-                   (and end (time-value->milliseconds end))))
-(define audio-clip*
-  (procedure-rename audio-clip** 'audio-clip))
-
-;; audio-clip -> float
-(define (audio-clip-start ac)
-  (ms->s (audio-clip-start/ms ac)))
-
-;; audio-clip -> (or float #f)
-(define (audio-clip-end ac)
-  (cond [(audio-clip-end/ms ac) => ms->s]
-        [else #f]))
-
-(define (ms->s x)
-  (* x 0.001))
-
-(module+ test
-  (define s (build-path "s"))
-  (check-equal? (audio-clip* s '0:00 '1:00)
-                (make-audio-clip s 0 60000))
-  (check-equal? (audio-clip* s '2:01)
-                (make-audio-clip s 121000 #f))
-  (check-= (audio-clip-start (audio-clip* s '2:01.5))   121.5 0.0001)
-  (check-= (audio-clip-end   (audio-clip* s 0 '2:01.5)) 121.5 0.0001)
-  (check-false (audio-clip-end (audio-clip* s '2:01.5))))
 
 ;; ---------------------------------------------------------------------------------------
 ;; Tracks
@@ -195,11 +126,11 @@
 ;; =====================================
 
 (module+ test
-  (define P string->path)
+  (define P build-path)
 
-  (define t1 (track* #:audio (P "a") #:output (P "A") (title: "aaa")))
-  (define t2 (track* #:audio (make-audio-clip (P "b") 1000 #f) #:output (P "B") (title: "bbb")))
-  (define t3 (track* #:audio (P "c") #:output (P "C") (title: "ccc") (track-num: 1)))
+  (define t1 (track* #:audio (fs "a") #:output (P "A") (title: "aaa")))
+  (define t2 (track* #:audio (make-audio-clip (fs "b") 1000 #f) #:output (P "B") (title: "bbb")))
+  (define t3 (track* #:audio (fs "c") #:output (P "C") (title: "ccc") (track-num: 1)))
 
   (check-equal?
    (with-output-to-string (λ () (display t2)))
@@ -209,12 +140,12 @@
   (check-equal? (track-number t3) 1)
 
   (check-equal?
-   (track* #:audio (P "a") (title: "the title"))
-   (track* #:audio (P "a") #:output (P "the title") (title: "the title")))
+   (track* #:audio (fs "a") (title: "the title"))
+   (track* #:audio (fs "a") #:output (P "the title") (title: "the title")))
 
   (check-exn #px"no title"
              (λ ()
-               (track* #:audio (P "..."))))
+               (track* #:audio (fs "..."))))
 
   (check-match
    (for/list ([m (in-track-metadata t3)]) m)
@@ -336,11 +267,11 @@
 
 (module+ test
 
-  (define t1+a (track* #:audio (P "a") #:output (P "A")
+  (define t1+a (track* #:audio (fs "a") #:output (P "A")
                        (title: "aaa") (album: "ABC")))
-  (define t2+a (track* #:audio (make-audio-clip (P "b") 1000 #f) #:output (P "B")
+  (define t2+a (track* #:audio (make-audio-clip (fs "b") 1000 #f) #:output (P "B")
                        (title: "bbb") (album: "ABC")))
-  (define t3+a (track* #:audio (P "c") #:output (P "C")
+  (define t3+a (track* #:audio (fs "c") #:output (P "C")
                        (title: "ccc") (track-num: 1) (album: "ABC") (artist: "Alphabet")))
 
   (define alb-1+2 (album* "ABC" t1 t2 #:number? #f))

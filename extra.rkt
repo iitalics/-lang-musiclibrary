@@ -9,6 +9,7 @@
 (require
  "./private/tracks-albums.rkt"
  "./private/metadata.rkt"
+ "./private/source.rkt"
  racket/vector
  syntax/parse/define
  (for-syntax racket/base
@@ -87,7 +88,7 @@
 ;; =======================================================================================
 
 (module+ test
-  (define s (build-path "S"))
+  (define s (fs "S"))
   (define i 0)
 
   (check-equal?

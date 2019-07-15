@@ -19,6 +19,7 @@
  "./tracks-albums.rkt"
  "./ffmpeg.rkt"
  "./metadata.rkt"
+ "./source.rkt"
  racket/format
  threading)
 
@@ -75,7 +76,7 @@
        (define ss (audio-clip-start/ms asrc))
        (define to (audio-clip-end/ms asrc))
        (ffmpeg-args-add-input args
-                              (audio-clip-source asrc)
+                              (source-path (audio-clip-source asrc))
                               (list* "-ss"
                                      (~r (/ ss 1000))
                                      (if to
@@ -83,7 +84,9 @@
                                        '())))]
 
       [(source? asrc)
-       (ffmpeg-args-add-input args asrc '())]))
+       (ffmpeg-args-add-input args
+                              (source-path asrc)
+                              '())]))
 
   (define (add-metadata args)
     (for/fold ([args args])
@@ -149,7 +152,7 @@
                 "../example/test-audio.ogg"))
 
   (define test-track
-    (track #:audio test-audio-path
+    (track #:audio (fs test-audio-path)
            #:output "test-audio"
            (title: "Foo")))
 
@@ -168,12 +171,12 @@
        (ffmpeg-args-set-metadata _ 'TITLE "Foo")))
 
   (define test-track-clipped
-    (track #:audio (audio-clip test-audio-path 0.123 '1:40)
+    (track #:audio (audio-clip (fs test-audio-path) 0.123 '1:40)
            #:output "test-audio"
            (title: "Foo")))
 
   (define test-track-clipped*
-    (track #:audio (audio-clip test-audio-path 0.5)
+    (track #:audio (audio-clip (fs test-audio-path) 0.5)
            #:output "test-audio"
            (title: "Foo")))
 

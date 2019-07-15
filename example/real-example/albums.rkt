@@ -8,7 +8,7 @@
    (artist: "100 gecs")
    (cover-art: (build-path "./SOURCES/1000-Gecs.jpg"))
    (sliced-tracks
-    #:audio (build-path "./SOURCES/1000-Gecs.m4a")
+    #:audio (fs "./SOURCES/1000-Gecs.m4a")
     "745 Sticky"               0:00
     "Money Machine"            2:21
     "800dB Cloud"              4:15
@@ -26,7 +26,7 @@
    (artist: "Death Grips")
    (cover-art: (build-path "./SOURCES/Exmilitary.webp"))
    (sliced-tracks
-    #:audio (build-path "./SOURCES/Exmilitary.ogg")
+    #:audio (fs "./SOURCES/Exmilitary.ogg")
     "Beware"                        0:00
     "Guillotine"                    5:53
     "Spread Eagle Cross The Block"  9:36
@@ -46,7 +46,7 @@
    "The Money Store"
    (artist: "Death Grips")
    (sliced-tracks
-    #:audio (build-path "./SOURCES/The-Money-Store.ogg")
+    #:audio (fs "./SOURCES/The-Money-Store.ogg")
     "Get Got"              0:00
     "The Fever (Aye Aye)"  2:52
     "Lost Boys"            5:59
@@ -66,7 +66,7 @@
    "CLPPNG"
    (artist: "Clipping")
    (sliced-tracks
-    #:audio (build-path "./SOURCES/CLPPNG.opus")
+    #:audio (fs "./SOURCES/CLPPNG.opus")
     "Intro"                             0:00
     "Body & Blood"                      1:05
     "Work Work (ft. Cocc Pistol Cree)"  5:34
@@ -87,7 +87,7 @@
    "Odyssey"
    (artist: "HOME")
    (sliced-tracks
-    #:audio (build-path "./SOURCES/Odyssey.opus")
+    #:audio (fs "./SOURCES/Odyssey.opus")
     "Intro"                             0:00
     "Native"                            3:09
     "Decay"                             7:11
@@ -106,7 +106,7 @@
    "You Won't Get What You Want"
    (artist: "Daughters")
    (sliced-tracks
-    #:audio (build-path "./SOURCES/You-Wont-Get.ogg")
+    #:audio (fs "./SOURCES/You-Wont-Get.ogg")
     "City Song"                0:00
     "Long Road No Turns"       5:55
     "Satan In The Wait"        11:00
@@ -123,7 +123,7 @@
    "Emerald Fantasy Tracks"
    (artist: "Lone")
    (sliced-tracks
-    #:audio (build-path "./SOURCES/Emerald-Fantasy-Tracks.m4a")
+    #:audio (fs "./SOURCES/Emerald-Fantasy-Tracks.m4a")
     "Cloud 909"                     0:00
     "Aquamarine"                    5:30
     "Moon Beam Harp"                10:42
