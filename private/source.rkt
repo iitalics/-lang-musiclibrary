@@ -42,25 +42,43 @@
 ;; TODO: some sort of "include path" for (fs ..) sources
 ;; TODO: check if source is valid
 ;; TODO: non-fs sources
-;;  - curl  : url -> source
+;;  - url  : url -> source
 ;;  - yt-dl : yt-video-id -> source
-
 ;; --
 
+(struct source []
+  #:methods gen:custom-write
+  [(define (write-proc src port mode)
+     (write (source->sexp src) port))])
+
 ;; path : path
-(struct source [path]
-  #:transparent)
+(struct source:fs source [path])
 
 ;; (fs p) : source
 ;; p : path-string
 ;; --
 ;; construct a source from a local file on the filesystem
 (define (fs p)
-  (source (build-path p)))
+  (source:fs (build-path p)))
+
+;; (source->sexp src) : s-exp
+;; src : source
+(define (source->sexp src)
+  (cond
+    [(source:fs? src) `(fs ,(path->string (source:fs-path src)))]))
+
+;; (source-path src) : path
+;; src : source
+(define (source-path src)
+  (cond
+    [(source:fs? src) (source:fs-path src)]))
 
 ;; ==========================================
 
 (module+ test
+  (check-equal? (source-path (fs (build-path "../example/lain.png")))
+                (build-path "../example/lain.png"))
+
   (check-equal? (source-path (fs "../example/lain.png"))
                 (build-path "../example/lain.png")))
 
