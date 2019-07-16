@@ -18,7 +18,9 @@
  (contract-out
   [make-ffmpeg-args (path? . -> . ffmpeg-args?)]
   [ffmpeg-args-add-input (ffmpeg-args? path? (listof string?) . -> . ffmpeg-args?)]
-  [ffmpeg-args-set-metadata (ffmpeg-args? symbol? string? . -> . ffmpeg-args?)])
+  [ffmpeg-args-set-metadata (ffmpeg-args? symbol? string? . -> . ffmpeg-args?)]
+  [rename ffmpeg-args-metadata* ffmpeg-args-metadata
+          (ffmpeg-args? symbol? . -> . (or/c string? #f))])
  ; ---
  ; exec-ffmpeg
  (contract-out
@@ -70,6 +72,13 @@
   (struct-copy ffmpeg-args f-a
     [metadata (cons (cons k v) (ffmpeg-args-metadata f-a))]))
 
+;; (ffmpeg-args-metadata f-a k) : (or string #f)
+;; f-a : ffmpeg-args
+;; k : symbol
+(define (ffmpeg-args-metadata* f-a k)
+  (cond [(assq k (ffmpeg-args-metadata f-a)) => cdr]
+        [else #f]))
+
 ;; (ffmpeg-args-add-input f-a inp-path inp-flags) : ffmpeg-args
 ;; f-a : ffmpeg-args
 ;; inp-path : path?
@@ -99,6 +108,17 @@
     ,(path->string (ffmpeg-args-output-path f-a))))
 
 (module+ test
+
+  (check-equal? (~> (make-ffmpeg-args (build-path "OUT"))
+                    (ffmpeg-args-set-metadata _ 'foo "A")
+                    (ffmpeg-args-metadata* _ 'foo))
+                "A")
+
+  (check-equal? (~> (make-ffmpeg-args (build-path "OUT"))
+                    (ffmpeg-args-set-metadata _ 'foo "A")
+                    (ffmpeg-args-metadata* _ 'bar))
+                #f)
+
   (check-equal? (~> (make-ffmpeg-args (build-path "OUT"))
                     ffmpeg-args->strings)
                 '("-y"
