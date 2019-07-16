@@ -38,6 +38,7 @@
 (require
  "./ffmpeg.rkt"
  "./source.rkt"
+ "./source/cache.rkt"
  syntax/parse/define
  (for-syntax racket/base
              racket/syntax))

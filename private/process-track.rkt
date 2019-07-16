@@ -20,6 +20,8 @@
  "./ffmpeg.rkt"
  "./metadata.rkt"
  "./source.rkt"
+ "./source/cache.rkt"
+ "./source/fetch.rkt"
  racket/format
  racket/match
  threading)

@@ -4,16 +4,9 @@
 (provide
  ; ---
  ; primitive sources
- source? source-cache?
+ source?
  (contract-out
-  (struct (exn:fail:fetch exn:fail)
-    ([message string?]
-     [continuation-marks continuation-mark-set?]
-     [reason exn?]))
-  ; *** constructors ***
-  [fs (path-string? . -> . source?)]
-  ; *** operations on sources ***
-  [source-fetch (source? . -> . path?)])
+  [fs (path-string? . -> . source?)])
  ; ---
  ; audio sources
  audio-source? audio-clip?
@@ -33,12 +26,14 @@
   [audio-clip-end      (audio-clip? . -> . (or/c flonum? #f))]))
 
 (require
- racket/path
- "./time-value.rkt"
- (only-in racket/function curry))
+ "./time-value.rkt")
 
 (module+ test
   (require rackunit))
+
+(module* source-constructor-patterns #f
+  (provide
+   source:fs))
 
 ;; ---------------------------------------------------------------------------------------
 ;; "Primitive" sources
@@ -85,61 +80,6 @@
 
   (check-equal? (format "~s" (fs "foo")) "(fs \"foo\")")
   (check-equal? (fs "foo/../a") (fs "a")))
-
-;; ---------------------------------------------------------------------------------------
-;; Fetching sources
-;; --------
-
-; TODO:
-; ;; (current-cache-directory) : path
-; (define current-cache-directory
-;   (make-parameter (build-path "./musiclibrary-cache")))
-
-;; (make-exn:fail:fetch msg cmarks reason)
-;; reason : exn
-(struct exn:fail:fetch exn:fail [reason]
-  #:extra-constructor-name make-exn:fail:fetch)
-
-;; source exn -> !
-(define (reraise-fetch-exn src err)
-  (define msg (format "failed to fetch source: ~s\n  reason: ~a" src (exn-message err)))
-  (raise (make-exn:fail:fetch msg (current-continuation-marks) err)))
-
-;; (source-fetch src) : path
-;; src : source
-;; ---
-;; raises 'exn:fail:fetch' on error
-(define (source-fetch src)
-  (with-handlers ([exn:fail:fetch? raise]
-                  [exn:fail? (curry reraise-fetch-exn src)])
-    (cond
-      [(source:fs? src)
-       ; TODO: search multiple directories for the absolute path?
-       (define path (normalize-path (source:fs-path src)))
-       (unless (file-exists? path)
-         (define msg (format "source file ~s not found" (path->string path)))
-         (raise (make-exn:fail:filesystem msg (current-continuation-marks))))
-       path])))
-
-;; source-cache ::= [hash source => path]
-(define (source-cache? h)
-  (and (hash? h)
-       (for/and ([(k v) (in-hash h)])
-         (and (source? k) (path? v)))))
-
-;; ==========================================
-
-(module+ test
-  (check-equal? (source-fetch (fs "../example/lain.png"))
-                (normalize-path (build-path "../example/lain.png")))
-
-  (for ([bad-path (in-list '("../example/doesnt-exist.png"
-                             "../example"))])
-    (check-exn (λ (e) (and (exn:fail:fetch? e)
-                           (exn:fail:filesystem? (exn:fail:fetch-reason e))
-                           (regexp-match? #px"reason: source file .* not found"
-                                          (exn-message e))))
-               (λ () (source-fetch (fs bad-path))))))
 
 ;; ---------------------------------------------------------------------------------------
 ;; Audio sources (i.e., possibly-clipped sources)
