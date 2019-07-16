@@ -4,7 +4,7 @@
 (provide
  ; ---
  ; primitive sources
- source?
+ source? source-cache?
  (contract-out
   (struct (exn:fail:fetch exn:fail)
     ([message string?]
@@ -106,7 +106,7 @@
   (raise (make-exn:fail:fetch msg (current-continuation-marks) err)))
 
 ;; (source-fetch src) : path
-;; cache-dir : path
+;; src : source
 ;; ---
 ;; raises 'exn:fail:fetch' on error
 (define (source-fetch src)
@@ -120,6 +120,12 @@
          (define msg (format "source file ~s not found" (path->string path)))
          (raise (make-exn:fail:filesystem msg (current-continuation-marks))))
        path])))
+
+;; source-cache ::= [hash source => path]
+(define (source-cache? h)
+  (and (hash? h)
+       (for/and ([(k v) (in-hash h)])
+         (and (source? k) (path? v)))))
 
 ;; ==========================================
 
