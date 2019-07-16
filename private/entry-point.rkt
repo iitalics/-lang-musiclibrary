@@ -133,7 +133,7 @@
                ([a (in-list library)]
                 [t (in-album-tracks a)])
       (if (and (current-skip-cached-tracks?)
-               (track-cached? t))
+               (track-already-exists? t))
         (values tracks (add1 n-cached))
         (values (cons t tracks) n-cached))))
 
