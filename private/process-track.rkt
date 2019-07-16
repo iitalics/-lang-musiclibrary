@@ -25,7 +25,7 @@
  threading)
 
 (module+ test
-  (require rackunit))
+  (require rackunit racket/set))
 
 ;; ---------------------------------------------------------------------------------------
 ;; Configuration
@@ -57,15 +57,25 @@
 (define (track-already-exists? trk)
   (file-exists? (track-full-output-path trk)))
 
-;; (process-track trk) : void
+;; (process-track trk #:fetch [fetch-fn]) : void
 ;; trk : track
-;; cache : source-paths
+;; fetch-fn : [source -> path]
 ;; --
-;; raises exn:fail:ffmpeg if process fails
-(define (process-track trk)
-  (define-values [stdout stderr]
-    (exec-ffmpeg (track->ffmpeg-args trk #:cache (error 'proces-track "what cache?"))))
-  (void))
+;; raises exn:fail:ffmpeg if process fails.
+(define (process-track trk #:fetch [fetch-fn source-fetch])
+  (let loop ([cache (hash)])
+    (match (track->ffmpeg-args trk #:cache cache)
+      [(? source? src)
+       (define path
+         (if (hash-has-key? cache src)
+           (error 'process-track
+                  (format "BUG: doesn't realize this source was already cached: ~s" src))
+           (fetch-fn src)))
+       (loop (hash-set cache src path))]
+
+      [(? ffmpeg-args? args)
+       (define-values [_stdout _stderr] (exec-ffmpeg args))
+       (void)])))
 
 ;; (track->ffmpeg-args trk #:cache cache) : (or ffmpeg-args source)
 ;; trk : track
@@ -201,10 +211,12 @@
   ;; --
   ;; ffmpeg-args for tracks with complex metadata (album cover, track number)
 
+  ;; PROBLEM: we can't test adding multiple simple metadata because the hash key order is
+  ;; random...
+
   (define test-track+cover
     (track #:audio test-audio-src
            #:output "test-audio"
-           (title: "Foo")
            (cover-art: test-image-src)
            (track-num: 8)))
 
@@ -214,7 +226,6 @@
    (~> (make-ffmpeg-args (build-path (current-output-directory) "test-audio.mp3"))
        (ffmpeg-args-add-input test-audio-path '())
        (ffmpeg-args-add-input test-image-path '())
-       (ffmpeg-args-set-metadata _ 'title "Foo")
        (ffmpeg-args-set-metadata _ 'track "8")))
 
   (check-equal?
@@ -260,11 +271,18 @@
   (check-pred file-exists? test-audio-path
               "example audio file (test-audio.ogg) must exist")
 
-  #;
   (with-test-musiclibrary
-    ; TODO: check metadata?? how??
+    (define fetched-srcs (set))
     (parameterize ([current-output-format 'mp3])
-      (process-track test-track))
-    (check-equal?
-     (directory-list (current-output-directory))
-     (list (build-path "test-audio.mp3")))))
+      (process-track test-track+cover
+                     #:fetch (λ (src)
+                               (set! fetched-srcs (set-add fetched-srcs src))
+                               (source-fetch src))))
+
+    ; test it generated a file
+    (check-equal? (directory-list (current-output-directory))
+                  (list (build-path "test-audio.mp3")))
+
+    ; test the fetch callback
+    (check-equal? fetched-srcs
+                  (set test-audio-src test-image-src))))
