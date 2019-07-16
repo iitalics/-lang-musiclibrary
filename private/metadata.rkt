@@ -19,8 +19,10 @@
   [cover-art: (source?                    . -> . metadata-entry?)]
   [apply-metadata-entry ((metadata-entry?
                           ffmpeg-args?
-                          #:format symbol?)
-                         . ->* . ffmpeg-args?)])
+                          #:format symbol?
+                          #:cache source-cache?)
+                         . ->* .
+                         (or/c ffmpeg-args? source?))])
  ;; ---
  ;; macros
  define-metadata-key
@@ -47,11 +49,6 @@
 ;; Structs / properties
 ;; ----------
 
-;; prop:metadata-key : struct-type-property
-;; where
-;; metadata-key-ref : self -> (or [self any -> metadata-entry])
-;;                                [self ffmpeg-args symbol any -> ffmpeg-args])
-;; --
 ;; Implement this property to create a new kind of metadata key. It is advised to use
 ;; 'define-metadata-key' or 'define-simple-metadata-key' instead of using this property
 ;; directly.
@@ -71,33 +68,40 @@
                     ,(metadata-entry-value m-e))
             port))])
 
-;; (apply-metadata-key m-k f-a #:value val #:format fmt) : ffmpeg-args
+;; (apply-metadata-entry m-e f-a #:format fmt #:cache cache) : (or ffmpeg-args source)
+;; m-e : metadata-entry
+;; f-a : ffmpeg-args
+;; fmt : symbol
+;; cache : source-cache
+;; --
+;; returns a source if that source needs to be fetched in order for the metadata entry to
+;; be applied. otherwise returns the updated arguments, if the required sources (if any)
+;; are present in the cache 'spc'.
+(define (apply-metadata-entry m-e f-a #:format fmt #:cache cache)
+  (apply-metadata-key (metadata-entry-key m-e)
+                      f-a
+                      #:value (metadata-entry-value m-e)
+                      #:format fmt
+                      #:cache cache))
+
+;; (apply-metadata-key m-k f-a #:value val #:format fmt #:cache cache)
+;;   : (or ffmpeg-args source)
 ;; m-k : metadata-key
 ;; f-a : ffmpeg-args
 ;; val : any
 ;; fmt : symbol
-(define (apply-metadata-key m-k f-a #:value val #:format fmt)
+;; cache : source-cache
+(define (apply-metadata-key m-k f-a #:value val #:format fmt #:cache spc)
   (define proc (metadata-key-ref m-k))
   (cond
     [(procedure-arity-includes? proc 2)
-     (apply-metadata-entry (proc m-k val)
-                           f-a
-                           #:format fmt)]
-    [(procedure-arity-includes? proc 4)
-     (proc m-k f-a fmt val)]
+     (apply-metadata-entry (proc m-k val) f-a #:format fmt #:cache spc)]
+    [(procedure-arity-includes? proc 5)
+     (proc m-k f-a fmt spc val)]
     [else
      (error 'apply-metadata-key
-            "prop:metadata-key value should be function of 1 or 4 arguments")]))
-
-;; (apply-metadata-entry m-e f-a #:format fmt) : ffmpeg-args
-;; m-e : metadata-entry
-;; f-a : ffmpeg-args
-;; fmt : symbol
-(define (apply-metadata-entry m-e f-a #:format fmt)
-  (apply-metadata-key (metadata-entry-key m-e)
-                      f-a
-                      #:value (metadata-entry-value m-e)
-                      #:format fmt))
+            (format "~a's prop:metadata-key value should be function of 2 or 5 arguments"
+                    m-k))]))
 
 ;; ---------------------------------------------------------------------------------------
 ;; Key defining helpers
@@ -135,10 +139,13 @@
 ;;
 ;; <args> ::= <val-id>
 ;;          | <ffmpeg-args-id> <fmt-id> <val-id>
+;; --
+;; TODO: this interface kind of sucks, and it's not used very often :S maybe do something
+;; different
 (define-simple-macro (define-metadata-key (name:base-id arg:id ...)
                        body ...)
-  #:fail-unless (member (length (attribute arg)) '(1 3))
-  (format "expects either 1 or 3 arguments, got ~a" (length (attribute arg)))
+  #:fail-unless (member (length (attribute arg)) '(1 4))
+  (format "expects either 1 or 4 arguments, got ~a" (length (attribute arg)))
 
   (define-key+constructor name
     (struct key constant-write []
@@ -150,21 +157,26 @@
 ;; ==========
 
 (module+ test
-
-  (define args0
-    (make-ffmpeg-args (build-path "O")))
-
-  (define-metadata-key (as-list f-a fmt val)
-    `(,f-a ,fmt ,val))
+  (define-metadata-key (as-list f-a fmt spc val)
+    `(,f-a ,fmt ,(hash-keys spc) ,val))
 
   (define-metadata-key (as-list-doubled val)
     (as-list: (* 2 val)))
 
-  (check-equal? (apply-metadata-entry (as-list: 5) args0 #:format 'mp3)
-                `(,args0 mp3 5))
+  (define args0 (make-ffmpeg-args (build-path "O")))
+  (define cache0 (hash (fs "a.png") (build-path "cache/a.png")))
 
-  (check-equal? (apply-metadata-entry (as-list-doubled: 5) args0 #:format 'ogg)
-                `(,args0 ogg 10)))
+  (check-equal? (apply-metadata-entry (as-list: 5)
+                                      args0
+                                      #:cache cache0
+                                      #:format 'mp3)
+                `(,args0 mp3 [,(fs "a.png")] 5))
+
+  (check-equal? (apply-metadata-entry (as-list-doubled: 5)
+                                      args0
+                                      #:cache cache0
+                                      #:format 'ogg)
+                `(,args0 ogg [,(fs "a.png")] 10)))
 
 ;; --------------------------------------------------------------------------------
 ;; define-simple-metadata-key
@@ -194,7 +206,7 @@
 ;; value->string  : any -> string
 (struct simple-key constant-write [format->symbol value->string]
   #:property prop:metadata-key
-  (λ (self f-a fmt val)
+  (λ (self f-a fmt _cache val)
     (ffmpeg-args-set-metadata f-a
                               ((simple-key-format->symbol self) fmt)
                               ((simple-key-value->string self) val))))
@@ -213,9 +225,12 @@
 
 ;; (cover-art: img-src) : metadata-entry
 ;; img-src : source
-(define-metadata-key (cover-art ffm-args fmt img-src)
-  (define img-path (source-fetch img-src))
-  (ffmpeg-args-add-input ffm-args img-path '()))
+(define-metadata-key (cover-art ffm-args fmt cache img-src)
+  (if (hash-has-key? cache img-src)
+    (ffmpeg-args-add-input ffm-args
+                           (hash-ref cache img-src)
+                           '())
+    img-src))
 
 ;; ==========
 
@@ -226,21 +241,32 @@
   (check-equal? (format "~a" +title) "+title")
   (check-equal? (format "~a" (title: "x")) "(meta: +title \"x\")")
 
-  (check-equal? (apply-metadata-entry (artist: "me") args0 #:format 'mp3)
+  (check-equal? (apply-metadata-entry (artist: "me")
+                                      args0
+                                      #:cache cache0
+                                      #:format 'mp3)
                 (ffmpeg-args-set-metadata args0 'album_artist "me"))
 
-  (check-equal? (apply-metadata-entry (title: "foo") args0 #:format 'ogg)
+  (check-equal? (apply-metadata-entry (title: "foo")
+                                      args0
+                                      #:cache cache0
+                                      #:format 'ogg)
                 (ffmpeg-args-set-metadata args0 'TITLE "foo"))
 
-  (check-equal? (apply-metadata-entry (track-num: 3) args0 #:format 'ogg)
+  (check-equal? (apply-metadata-entry (track-num: 3)
+                                      args0
+                                      #:cache cache0
+                                      #:format 'ogg)
                 (ffmpeg-args-set-metadata args0 'TRACKNUMBER "3"))
 
-  (define eg-path (build-path "../example/lain.png"))
-  (check-equal? (apply-metadata-entry (cover-art: (fs eg-path)) args0 #:format 'ogg)
-                (ffmpeg-args-add-input args0 eg-path '()))
+  (check-equal? (apply-metadata-entry (cover-art: (fs "a.png"))
+                                      args0
+                                      #:cache cache0
+                                      #:format 'ogg)
+                (ffmpeg-args-add-input args0 (build-path "cache/a.png") '()))
 
-  (check-exn exn:fail:fetch?
-             (λ ()
-               (apply-metadata-entry (cover-art: (fs "../example/doesnt-exist.png"))
-                                     args0
-                                     #:format 'ogg))))
+  (check-equal? (apply-metadata-entry (cover-art: (fs "b.png"))
+                                      args0
+                                      #:cache cache0
+                                      #:format 'ogg)
+                (fs "b.png")))

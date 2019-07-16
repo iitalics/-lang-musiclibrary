@@ -21,6 +21,7 @@
  "./metadata.rkt"
  "./source.rkt"
  racket/format
+ racket/match
  threading)
 
 (module+ test
@@ -58,49 +59,61 @@
 
 ;; (process-track trk) : void
 ;; trk : track
+;; cache : source-paths
 ;; --
-;; raises exn:fail:ffmpeg
+;; raises exn:fail:ffmpeg if process fails
 (define (process-track trk)
   (define-values [stdout stderr]
-    (exec-ffmpeg (track->ffmpeg-args trk)))
+    (exec-ffmpeg (track->ffmpeg-args trk #:cache (error 'proces-track "what cache?"))))
   (void))
 
-;; (track->ffmpeg-args trk) : ffmpeg-args
+;; (track->ffmpeg-args trk #:cache cache) : (or ffmpeg-args source)
 ;; trk : track
-(define (track->ffmpeg-args trk)
+;; cache : source-paths
+(define (track->ffmpeg-args trk #:cache cache)
 
-  (define (add-audio-src args)
-    (define asrc (track-audio-source trk))
-    (cond
-      [(audio-clip? asrc)
-       (define ss (audio-clip-start/ms asrc))
-       (define to (audio-clip-end/ms asrc))
-       (define src-path (source-fetch (audio-clip-source asrc)))
-       (ffmpeg-args-add-input args
-                              src-path
-                              (list* "-ss"
-                                     (~r (/ ss 1000))
-                                     (if to
-                                       `("-to" ,(~r (/ to 1000)))
-                                       '())))]
+  (define-values [a-src a-flags]
+    (match (track-audio-source trk)
+      [(? audio-clip? c)
+       (define ss (audio-clip-start/ms c))
+       (define to (audio-clip-end/ms c))
+       (values (audio-clip-source c)
+               (list* "-ss"
+                      (~r (/ ss 1000))
+                      (if to
+                        `("-to" ,(~r (/ to 1000)))
+                        '())))]
 
-      [(source? asrc)
-       (define src-path (source-fetch asrc))
-       (ffmpeg-args-add-input args
-                              src-path
-                              '())]))
+      [(? source? src)
+       (values src '())]))
 
-  (define (add-metadata args)
-    (for/fold ([args args])
-              ([m-e (in-track-metadata trk)])
-      (apply-metadata-entry m-e
-                            args
-                            #:format (current-output-format))))
+  (match (hash-ref cache a-src #f)
+    [#f
+     ; source not in cache, so return early
+     a-src]
 
-  (~> (track-full-output-path trk)
-      make-ffmpeg-args
-      add-audio-src
-      add-metadata))
+    [(? path? a-path)
+
+     (define args0
+       (~> (track-full-output-path trk)
+           make-ffmpeg-args
+           (ffmpeg-args-add-input _ a-path a-flags)))
+
+     (define-values [args req-src]
+       (for/fold ([args args0]
+                  [_req-src #f])
+                 ([m-e (in-track-metadata trk)])
+         #:break (not args)
+         (match (apply-metadata-entry m-e
+                                      args
+                                      #:format (current-output-format)
+                                      #:cache cache)
+           [(? source? req-src)
+            (values #f req-src)]
+           [(? ffmpeg-args? args*)
+            (values args* #f)])))
+
+     (or args req-src)]))
 
 ;; (track-full-output-path trk) : path
 ;; trk : track
@@ -149,49 +162,94 @@
   ;; -----------------------------------
   ;; Simple unit tests
 
-  (define test-audio-path
-    (build-path (current-directory)
-                "../example/test-audio.ogg"))
+  (define test-audio-path (build-path (current-directory) "../example/test-audio.ogg"))
+  (define test-image-path (build-path (current-directory) "../example/lain.png"))
+  (define test-audio-src (fs test-audio-path))
+  (define test-image-src (fs test-image-path))
 
   (define test-track
-    (track #:audio (fs test-audio-path)
+    (track #:audio test-audio-src
            #:output "test-audio"
            (title: "Foo")))
 
+  (define cache-full
+    (hash test-audio-src test-audio-path
+          test-image-src test-image-path))
+
+  ;; --
+  ;; ffmpeg-args for tracks with simple metadata & source
+
   (check-equal?
    (parameterize ([current-output-format 'mp3])
-     (track->ffmpeg-args test-track))
+     (track->ffmpeg-args test-track #:cache (hash)))
+   test-audio-src)
+
+  (check-equal?
+   (parameterize ([current-output-format 'mp3])
+     (track->ffmpeg-args test-track #:cache cache-full))
    (~> (make-ffmpeg-args (build-path (current-output-directory) "test-audio.mp3"))
        (ffmpeg-args-add-input test-audio-path '())
        (ffmpeg-args-set-metadata _ 'title "Foo")))
 
   (check-equal?
    (parameterize ([current-output-format 'ogg])
-     (track->ffmpeg-args test-track))
+     (track->ffmpeg-args test-track #:cache cache-full))
    (~> (make-ffmpeg-args (build-path (current-output-directory) "test-audio.ogg"))
        (ffmpeg-args-add-input test-audio-path '())
        (ffmpeg-args-set-metadata _ 'TITLE "Foo")))
 
+  ;; --
+  ;; ffmpeg-args for tracks with complex metadata (album cover, track number)
+
+  (define test-track+cover
+    (track #:audio test-audio-src
+           #:output "test-audio"
+           (title: "Foo")
+           (cover-art: test-image-src)
+           (track-num: 8)))
+
+  (check-equal?
+   (parameterize ([current-output-format 'mp3])
+     (track->ffmpeg-args test-track+cover #:cache cache-full))
+   (~> (make-ffmpeg-args (build-path (current-output-directory) "test-audio.mp3"))
+       (ffmpeg-args-add-input test-audio-path '())
+       (ffmpeg-args-add-input test-image-path '())
+       (ffmpeg-args-set-metadata _ 'title "Foo")
+       (ffmpeg-args-set-metadata _ 'track "8")))
+
+  (check-equal?
+   (parameterize ([current-output-format 'ogg])
+     (track->ffmpeg-args test-track+cover #:cache (hash test-audio-src test-audio-path)))
+   test-image-src)
+
+  ;; --
+  ;; ffmpeg-args for tracks with clipped sources
+
   (define test-track-clipped
-    (track #:audio (audio-clip (fs test-audio-path) 0.123 '1:40)
+    (track #:audio (audio-clip test-audio-src 0.123 '1:40)
            #:output "test-audio"
            (title: "Foo")))
 
   (define test-track-clipped*
-    (track #:audio (audio-clip (fs test-audio-path) 0.5)
+    (track #:audio (audio-clip test-audio-src 0.5)
            #:output "test-audio"
            (title: "Foo")))
 
   (check-equal?
    (parameterize ([current-output-format 'ogg])
-     (track->ffmpeg-args test-track-clipped))
+     (track->ffmpeg-args test-track-clipped #:cache (hash)))
+   test-audio-src)
+
+  (check-equal?
+   (parameterize ([current-output-format 'ogg])
+     (track->ffmpeg-args test-track-clipped #:cache cache-full))
    (~> (make-ffmpeg-args (build-path (current-output-directory) "test-audio.ogg"))
        (ffmpeg-args-add-input test-audio-path '("-ss" "0.123" "-to" "100"))
        (ffmpeg-args-set-metadata _ 'TITLE "Foo")))
 
   (check-equal?
    (parameterize ([current-output-format 'ogg])
-     (track->ffmpeg-args test-track-clipped*))
+     (track->ffmpeg-args test-track-clipped* #:cache cache-full))
    (~> (make-ffmpeg-args (build-path (current-output-directory) "test-audio.ogg"))
        (ffmpeg-args-add-input test-audio-path '("-ss" "0.5"))
        (ffmpeg-args-set-metadata _ 'TITLE "Foo")))
@@ -202,6 +260,7 @@
   (check-pred file-exists? test-audio-path
               "example audio file (test-audio.ogg) must exist")
 
+  #;
   (with-test-musiclibrary
     ; TODO: check metadata?? how??
     (parameterize ([current-output-format 'mp3])
