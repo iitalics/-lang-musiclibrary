@@ -68,12 +68,7 @@
   (let loop ([cache (hash)])
     (match (track->ffmpeg-args trk #:cache cache)
       [(? source? src)
-       (define path
-         (if (hash-has-key? cache src)
-           (error 'process-track
-                  (format "BUG: doesn't realize this source was already cached: ~s" src))
-           (fetch-fn src)))
-       (loop (hash-set cache src path))]
+       (loop (source-cache cache src #:fetch fetch-fn))]
 
       [(? ffmpeg-args? args)
        (define-values [_stdout _stderr] (exec-ffmpeg args))
@@ -99,13 +94,12 @@
       [(? source? src)
        (values src '())]))
 
-  (match (hash-ref cache a-src #f)
-    [#f
+  (match (source-cache-ref cache a-src)
+    [(? source? a-src)
      ; source not in cache, so return early
      a-src]
 
     [(? path? a-path)
-
      (define args0
        (~> (track-full-output-path trk)
            make-ffmpeg-args

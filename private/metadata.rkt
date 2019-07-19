@@ -227,11 +227,12 @@
 ;; (cover-art: img-src) : metadata-entry
 ;; img-src : source
 (define-metadata-key (cover-art ffm-args fmt cache img-src)
-  (if (hash-has-key? cache img-src)
-    (ffmpeg-args-add-input ffm-args
-                           (hash-ref cache img-src)
-                           '())
-    img-src))
+  (define img-path/src (source-cache-ref cache img-src))
+  (cond [(path? img-path/src)
+         (ffmpeg-args-add-input ffm-args
+                                img-path/src
+                                '())]
+        [else img-path/src]))
 
 ;; ==========
 
