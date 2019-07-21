@@ -13,7 +13,7 @@
  ; process-track
  (contract-out
   [track-already-exists? (track? . -> . boolean?)]
-  [process-track (track? . -> . void?)]))
+  [process-track (track? (source? . -> . source-cache?) . -> . void?)]))
 
 (require
  "./tracks-albums.rkt"
@@ -62,16 +62,17 @@
 (define (track-already-exists? trk)
   (file-exists? (track-full-output-path trk)))
 
-;; (process-track trk #:fetch [fetch-fn]) : void
+;; (process-track trk update-cache) : void
 ;; trk : track
-;; fetch-fn : [source -> path]
+;; update-cache : [source -> cache]
 ;; --
+;; update-cache should return a cache which contains the given source.
 ;; raises exn:fail:ffmpeg if process fails.
-(define (process-track trk #:fetch [fetch-fn source-fetch])
+(define (process-track trk update-cache)
   (let loop ([cache (hash)])
     (match (track->ffmpeg-args trk #:cache cache)
       [(? source? src)
-       (loop (source-cache cache src #:fetch fetch-fn))]
+       (loop (update-cache src))]
 
       [(? ffmpeg-args? args)
        (define-values [_stdout _stderr] (exec-ffmpeg args))
@@ -260,11 +261,18 @@
 
   (with-test-musiclibrary
     (define fetched-srcs (set))
+    (define cache (hash))
+
+    (define (fetch* src) ; src -> path
+      (set! fetched-srcs (set-add fetched-srcs src))
+      (source-fetch src))
+
+    (define (update* src) ; src -> cache
+      (set! cache (source-cache cache src #:fetch fetch*))
+      cache)
+
     (parameterize ([current-output-format 'mp3])
-      (process-track test-track+cover
-                     #:fetch (λ (src)
-                               (set! fetched-srcs (set-add fetched-srcs src))
-                               (source-fetch src))))
+      (process-track test-track+cover update*))
 
     ; test it generated a file
     (check-equal? (directory-list (current-output-directory))

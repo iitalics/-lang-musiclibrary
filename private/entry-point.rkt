@@ -10,12 +10,18 @@
  "./tracks-albums.rkt"
  "./process-track.rkt"
  "./ffmpeg.rkt"
+ "./source/cache.rkt"
  racket/cmdline
  racket/format
  racket/match)
 
 (module+ test
-  (require rackunit racket/port))
+  (require
+   rackunit
+   racket/port
+   "./source.rkt"
+   "./metadata.rkt"
+   "./test-utils.rkt"))
 
 ;; ---------------------------------------------------------------------------------------
 ;; Utils
@@ -144,15 +150,16 @@
   ;; worker
 
   (define (worker-routine)
+    (define recv (make-channel))
+    (define (update-cache src)
+      (channel-put mailbox `(fetch ,src ,recv))
+      (channel-get recv))
     (loop-forever
-     (define trk
-       (let ([getter (make-channel)])
-         (channel-put mailbox `(wait ,getter))
-         (channel-get getter)))
-
+     (channel-put mailbox `(wait ,recv))
+     (define trk (channel-get recv))
      (with-handlers ([exn:fail? (λ (e)
                                   (channel-put mailbox `(fail ,trk ,e)))])
-       (process-track trk)
+       (process-track trk update-cache)
        (channel-put mailbox `(ok ,trk)))))
 
   ;; ----
@@ -176,37 +183,49 @@
     (make-indicator (message 0 "Started.")))
 
   ;; tq : (listof track)
-  ;; n-complete : nat
-  (define (mail-loop tq n-complete)
-    (unless (>= n-complete
-                n-tracks)
+  ;; sc : source-cache
+  ;; nc : nat
+  (define (mail-loop tq sc nc)
+    (unless (>= nc n-tracks)
       (match (channel-get mailbox)
         ['ping
          (indicator-spin! ind)
-         (mail-loop tq n-complete)]
+         (mail-loop tq sc nc)]
 
         [`(ok ,trk)
-         (define n-complete* (add1 n-complete))
-         (indicator-update! ind (message n-complete*
+         (define nc* (add1 nc))
+         (indicator-update! ind (message nc*
                                          "Finished: "
                                          (~s (track-title trk))))
-         (mail-loop tq n-complete*)]
+         (mail-loop tq sc nc*)]
 
         [`(fail ,trk ,e)
-         (define n-complete* (add1 n-complete))
+         (define nc* (add1 nc))
          (indicator-clear! ind)
          (displayln (exn-message e))
-         (indicator-update! ind (message n-complete*
+         (indicator-update! ind (message nc*
                                          "Failed: "
                                          (~s (track-title trk))))
-         (mail-loop tq n-complete*)]
+         (mail-loop tq sc nc*)]
 
-        [`(wait ,getter)
+        [`(wait ,recv-chan)
          (define tq* (cond
                        [(null? tq) '()]
-                       [else (channel-put getter (car tq))
+                       [else (channel-put recv-chan (car tq))
                              (cdr tq)]))
-         (mail-loop tq* n-complete)])))
+         (mail-loop tq* sc nc)]
+
+        [`(fetch ,src ,recv-chan)
+         (define sc*
+           (if (source-in-cache? sc src)
+             sc
+             (begin0 (source-cache sc src)
+               (indicator-update! ind (message nc "Fetched:" (~s src))))))
+         (channel-put recv-chan sc*)
+         (mail-loop tq sc* nc)])))
+
+  (define (start-mail-loop)
+    (mail-loop tracks (hash) 0))
 
   ;; ---
   ;; starts here
@@ -229,7 +248,7 @@
   (define ping-thread
     (thread ping-routine))
 
-  (mail-loop tracks 0)
+  (start-mail-loop)
 
   (for ([thd (in-list (cons ping-thread worker-threads))])
     (break-thread thd))
@@ -284,3 +303,25 @@
   ;; -------
 
   (generate-music-library library))
+
+(module+ test
+
+  ;; these tests do IO
+
+  (define (test-main)
+    (cli-main
+     (list (album "The Test"
+                  (cover-art: (fs "../example/lain.png"))
+                  (track #:audio (fs "../example/test-audio.ogg") (title: "Test1"))
+                  (track #:audio (fs "../example/test-audio.ogg") (title: "Test2"))))
+     #:argv
+     '("-o" "TEST-MUSICLIB" "-j" "2" "-f" "mp3")))
+
+  (void
+   (with-handlers ([exn:fail? (λ (e)
+                                (check-false e))])
+     (with-output-to-string test-main)
+     ; run again so it is cached this time
+     (with-output-to-string test-main)))
+
+  (recursively-delete-directory "./TEST-MUSICLIB"))
