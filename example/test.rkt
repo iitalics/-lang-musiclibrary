@@ -4,7 +4,7 @@
   (fs (build-path "test-audio.ogg")))
 
 (define test-cover
-  (build-path "lain.png"))
+  (fs (build-path "lain.png")))
 
 (define t
   (track #:audio test-audio
