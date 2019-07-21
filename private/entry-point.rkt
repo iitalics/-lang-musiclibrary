@@ -220,7 +220,7 @@
            (if (source-in-cache? sc src)
              sc
              (begin0 (source-cache sc src)
-               (indicator-update! ind (message nc "Fetched:" (~s src))))))
+               (indicator-update! ind (message nc "Fetched: " (~a src))))))
          (channel-put recv-chan sc*)
          (mail-loop tq sc* nc)])))
 

@@ -50,8 +50,10 @@
 (struct source []
   #:transparent
   #:methods gen:custom-write
-  [(define (write-proc src port mode)
-     (write (source->sexp src) port))])
+  [(define (write-proc src port write?)
+     (if write?
+       (write (source->sexp src) port)
+       (write-string (source->pretty src) port)))])
 
 ;; path : path
 (struct source:fs source [path] #:transparent)
@@ -72,12 +74,20 @@
     [(source:fs? src)
      `(fs ,(path->string (source:fs-path src)))]))
 
+;; (source->pretty src) : string
+;; src : source
+(define (source->pretty src)
+  (cond
+    [(source:fs? src)
+     (format "file ~s" (path->string (source:fs-path src)))]))
+
 (module+ test
 
   ;; this test shouldn't pass if we want to be able to search in multiple directories. but
   ;; then it makes these two paths considered unique
-  ;; (check-equal? (fs "../private/a") (fs "a"))
+  ; (check-equal? (fs "../private/a") (fs "a"))
 
+  (check-equal? (format "~a" (fs "foo")) "file \"foo\"")
   (check-equal? (format "~s" (fs "foo")) "(fs \"foo\")")
   (check-equal? (fs "foo/../a") (fs "a")))
 
