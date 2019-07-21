@@ -27,7 +27,10 @@
  threading)
 
 (module+ test
-  (require rackunit racket/set))
+  (require
+   rackunit
+   racket/set
+   "./test-utils.rkt"))
 
 ;; ---------------------------------------------------------------------------------------
 ;; Configuration
@@ -135,18 +138,6 @@
 
   ;; -----------------------------------
   ;; Utils
-
-  ;; (recursively-delete-directory d) : void
-  ;; d : path-string
-  (define (recursively-delete-directory d)
-    (define leftover-dirs
-      (for/fold ([l (list d)])
-                ([p (in-directory d)])
-        (if (directory-exists? p)
-          (cons p l)
-          (begin (delete-file p)
-                 l))))
-    (for-each delete-directory leftover-dirs))
 
   ;; [-> A] -> A
   (define (call/test-musiclibrary f)
