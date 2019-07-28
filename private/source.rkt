@@ -6,7 +6,8 @@
  ; primitive sources
  source?
  (contract-out
-  [fs (path-string? . -> . source?)])
+  [fs (path-string? . -> . source?)]
+  [net ((or/c string? url?) . -> . source?)])
  ; ---
  ; audio sources
  audio-source? audio-clip?
@@ -26,6 +27,7 @@
   [audio-clip-end      (audio-clip? . -> . (or/c flonum? #f))]))
 
 (require
+ net/url-string
  "./time-value.rkt")
 
 (module+ test
@@ -33,7 +35,8 @@
 
 (module* source-constructor-patterns #f
   (provide
-   source:fs))
+   source:fs
+   source:net))
 
 ;; ---------------------------------------------------------------------------------------
 ;; "Primitive" sources
@@ -43,7 +46,6 @@
 ;; TODO: some sort of "include path" for (fs ..) sources
 ;; TODO: multiple fs sources; something like (fs path-1 path-2 ...)
 ;; TODO: non-fs sources
-;;  - url  : url -> source
 ;;  - yt-dl : yt-video-id -> source
 ;; --
 
@@ -57,6 +59,8 @@
 
 ;; path : path
 (struct source:fs source [path] #:transparent)
+;; url : url
+(struct source:net source [url] #:transparent)
 
 ;; (fs p) : source
 ;; p : path-string
@@ -67,19 +71,34 @@
   ; error or even do IO so it's important that #f is supplied.
   (source:fs (simplify-path (build-path p) #f)))
 
+;; (net u) : source
+;; u : (or url url-string)
+;; --
+;; construct a source from a remote file (by URL). the URL must be HTTP or HTTPS
+(define (net u)
+  (define l (if (url? u) u (string->url u)))
+  (case (url-scheme l)
+    [("http" "https") (void)]
+    [else (raise-user-error 'net "URL must have schema \"http://\" or \"https://\"")])
+  (source:net l))
+
 ;; (source->sexp src) : s-exp
 ;; src : source
 (define (source->sexp src)
   (cond
     [(source:fs? src)
-     `(fs ,(path->string (source:fs-path src)))]))
+     `(fs ,(path->string (source:fs-path src)))]
+    [(source:net? src)
+     `(net ,(url->string (source:net-url src)))]))
 
 ;; (source->pretty src) : string
 ;; src : source
 (define (source->pretty src)
   (cond
     [(source:fs? src)
-     (format "file ~s" (path->string (source:fs-path src)))]))
+     (format "file ~s" (path->string (source:fs-path src)))]
+    [(source:net? src)
+     (format "network URL ~s" (url->string (source:net-url src)))]))
 
 (module+ test
 
@@ -89,7 +108,8 @@
 
   (check-equal? (format "~a" (fs "foo")) "file \"foo\"")
   (check-equal? (format "~s" (fs "foo")) "(fs \"foo\")")
-  (check-equal? (fs "foo/../a") (fs "a")))
+  (check-equal? (fs "foo/../a") (fs "a"))
+  (check-equal? (net "http://a.com/?a=b;c=d") (net "http://a.com/?a=b&c=d")))
 
 ;; ---------------------------------------------------------------------------------------
 ;; Audio sources (i.e., possibly-clipped sources)

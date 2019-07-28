@@ -51,7 +51,10 @@
        (unless (file-exists? path)
          (define msg (format "source file ~s not found" (path->string path)))
          (raise (make-exn:fail:filesystem msg (current-continuation-marks))))
-       path])))
+       path]
+
+      [(source:net url)
+       (error "net requests unimplemented")])))
 
 ;; ==========================================
 
