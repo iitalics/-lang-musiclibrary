@@ -6,7 +6,7 @@
   (album
    "1000 gecs"
    (artist: "100 gecs")
-   (cover-art: (fs "./SOURCES/1000-Gecs.jpg"))
+   (cover-art: (net "https://f4.bcbits.com/img/a2604863078_16.jpg"))
    (sliced-tracks
     #:audio (fs "./SOURCES/1000-Gecs.m4a")
     "745 Sticky"               0:00

@@ -80,6 +80,7 @@
   (case (url-scheme l)
     [("http" "https") (void)]
     [else (raise-user-error 'net "URL must have schema \"http://\" or \"https://\"")])
+  ;; TODO: is it valid to have non-empty 'url-fragment'?
   (source:net l))
 
 ;; (source->sexp src) : s-exp
@@ -151,7 +152,7 @@
   (* x 0.001))
 
 (module+ test
-  (define s (build-path "s"))
+  (define s (source:fs (build-path "s")))
   (check-equal? (audio-clip* s '0:00 '1:00)
                 (make-audio-clip s 0 60000))
   (check-equal? (audio-clip* s '2:01)
