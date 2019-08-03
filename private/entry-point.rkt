@@ -13,7 +13,9 @@
  "./source/cache.rkt"
  racket/cmdline
  racket/format
- racket/match)
+ racket/match
+ racket/string
+ threading)
 
 (module+ test
   (require
@@ -33,6 +35,22 @@
 (define (plural n word [alt (string-append word "s")])
   (if (= n 1) word alt))
 
+;; (prepend-to-lines prefix str #:skip-first? [skip-first?]) : string
+;; prefix, str : string
+;; skip-first? : boolean
+(define (prepend-lines prefix str #:skip-first? [sk? #f])
+  (define (prepend-lines/list lines)
+    (for/list ([i (in-naturals)]
+               [line (in-list lines)])
+      (if (and sk? (zero? i))
+        line
+        (string-append prefix line))))
+
+  (~> str
+      (string-split _ "\n")
+      prepend-lines/list
+      (string-join _ "\n")))
+
 ;; (recursively-make-directory path) : void
 ;; path : path-string
 (define (recursively-make-directory path)
@@ -47,6 +65,12 @@
   (let loop ()
     (let () body ...)
     (loop)))
+
+(module+ test
+  (check-equal? (prepend-lines "* " "a\nb\nc")
+                "* a\n* b\n* c")
+  (check-equal? (prepend-lines "* " "a\nb\nc" #:skip-first? #t)
+                "a\n* b\n* c"))
 
 ;; ---------------------------------------------------------------------------------------
 ;; Fancy spinning indicator
@@ -219,7 +243,8 @@
          (define sc*
            (if (source-in-cache? sc src)
              sc
-             (begin0 (source-cache sc src)
+             (begin0
+                 (source-cache sc src)
                (indicator-update! ind (message nc "Fetched: " (~a src))))))
          (channel-put recv-chan sc*)
          (mail-loop tq sc* nc)])))
@@ -248,12 +273,23 @@
   (define ping-thread
     (thread ping-routine))
 
-  (start-mail-loop)
+  (define result
+    (with-handlers ([exn:fail? (λ (e) e)])
+      (start-mail-loop)
+      'ok))
 
   (for ([thd (in-list (cons ping-thread worker-threads))])
     (break-thread thd))
 
-  (printf "\n* Completed\n"))
+  (match result
+    ['ok
+     (printf "\n* Completed\n")]
+    [(? exn? e)
+     (printf "\n* Failed: ")
+     (displayln (prepend-lines "* "
+                               (exn-message e)
+                               #:skip-first? #t))]))
+
 
 ;; ---------------------------------------------------------------------------------------
 ;; CLI entry point
