@@ -7,7 +7,9 @@
  source?
  (contract-out
   [fs (path-string? . -> . source?)]
-  [net ((or/c string? url?) . -> . source?)])
+  [net ((or/c string? url?) . -> . source?)]
+  [source-hash-string (source? . -> . string?)]
+  [source-extension (source? . -> . bytes?)])
  ; ---
  ; audio sources
  audio-source? audio-clip?
@@ -28,6 +30,8 @@
 
 (require
  net/url-string
+ file/sha1
+ (only-in racket/path path-get-extension)
  "./time-value.rkt")
 
 (module+ test
@@ -77,9 +81,8 @@
 ;; construct a source from a remote file (by URL). the URL must be HTTP or HTTPS
 (define (net u)
   (define l (if (url? u) u (string->url u)))
-  (case (url-scheme l)
-    [("http" "https") (void)]
-    [else (raise-user-error 'net "URL must have schema \"http://\" or \"https://\"")])
+  (unless (member (url-scheme l) '("http" "https"))
+    (raise-user-error 'net "URL must have schema \"http://\" or \"https://\""))
   ;; TODO: is it valid to have non-empty 'url-fragment'?
   (source:net l))
 
@@ -93,6 +96,8 @@
      `(net ,(url->string (source:net-url src)))]))
 
 ;; (source->pretty src) : string
+;; (source-hash-string src) : string
+;; (source-extension src) : bytes
 ;; src : source
 (define (source->pretty src)
   (cond
@@ -100,6 +105,17 @@
      (format "file ~s" (path->string (source:fs-path src)))]
     [(source:net? src)
      (format "network URL ~s" (url->string (source:net-url src)))]))
+
+(define (source-hash-string src)
+  (sha1 (string->bytes/utf-8 (source->pretty src))))
+
+(define (source-extension src)
+  (define ext
+    (path-get-extension
+     (cond
+       [(source:fs? src) (source:fs-path src)]
+       [(source:net? src) (url->path (source:net-url src))])))
+  (or ext #""))
 
 (module+ test
 
@@ -110,7 +126,12 @@
   (check-equal? (format "~a" (fs "foo")) "file \"foo\"")
   (check-equal? (format "~s" (fs "foo")) "(fs \"foo\")")
   (check-equal? (fs "foo/../a") (fs "a"))
-  (check-equal? (net "http://a.com/?a=b;c=d") (net "http://a.com/?a=b&c=d")))
+  (check-equal? (net "http://a.com/?a=b;c=d") (net "http://a.com/?a=b&c=d"))
+
+  (check-equal? (source-extension (fs "foo/bar.png")) #".png")
+  (check-equal? (source-extension (net "http://foo.com/bar.jpg")) #".jpg")
+  (check-equal? (source-extension (fs "foo/bar")) #"")
+  (check-equal? (source-extension (net "http://foo.com/bar")) #""))
 
 ;; ---------------------------------------------------------------------------------------
 ;; Audio sources (i.e., possibly-clipped sources)
