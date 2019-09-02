@@ -11,11 +11,14 @@
   [current-local-cache-directory (parameter/c path?)]))
 
 (require
+ "../utils.rkt"
  "../source.rkt"
  (submod "../source.rkt" source-constructor-patterns)
  racket/match
  racket/path
- racket/function)
+ racket/function
+ (only-in net/url get-pure-port)
+ (only-in racket/port copy-port))
 
 (module+ test
   (require rackunit))
@@ -49,6 +52,19 @@
 (define current-local-cache-directory
   (make-parameter (build-path "./musiclibrary-cache")))
 
+;; (call/output-to-local-cache src f) : path
+;; src : source
+;; f : -> void
+(define (call/output-to-local-cache src f)
+  (define path (source->local-cache-path src))
+  (define-values [dir _file _dir?] (split-path path))
+  (recursively-make-directory dir)
+  (with-output-to-file path #:exists 'replace f)
+  path)
+
+(define-syntax-rule (with-output-to-local-cache src body ...)
+  (call/output-to-local-cache src (λ () body ...)))
+
 (module+ test
   (parameterize ([current-local-cache-directory (build-path "./MLC")])
     (for ([x (in-list `([,(fs "foo.png") "./MLC/~a.png"]
@@ -79,7 +95,11 @@
        path]
 
       [(source:net url)
-       (error "net requests unimplemented")])))
+       (with-output-to-local-cache src
+         ;; TODO: http connection pool?
+         (define conn-port (get-pure-port url))
+         (copy-port conn-port (current-output-port))
+         (close-input-port conn-port))])))
 
 ;; ==========================================
 
