@@ -34,7 +34,7 @@
 
 ;; source exn -> !
 (define (reraise-fetch-exn src err)
-  (define msg (format "failed to fetch source: ~s\n  reason: ~a" src (exn-message err)))
+  (define msg (format "failed to fetch source: ~a\n  reason: ~a" src (exn-message err)))
   (raise (make-exn:fail:fetch msg (current-continuation-marks) err)))
 
 ;; ---------------------------------------------------------------------------------------
@@ -59,7 +59,9 @@
   (define path (source->local-cache-path src))
   (define-values [dir _file _dir?] (split-path path))
   (recursively-make-directory dir)
-  (with-output-to-file path #:exists 'replace f)
+  (unless (file-exists? path)
+    (with-handlers ([exn? (λ (e) (delete-file path) (raise e))])
+      (with-output-to-file path f)))
   path)
 
 (define-syntax-rule (with-output-to-local-cache src body ...)
