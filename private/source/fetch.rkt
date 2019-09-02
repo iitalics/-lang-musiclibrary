@@ -7,7 +7,8 @@
     ([message string?]
      [continuation-marks continuation-mark-set?]
      [reason exn?]))
-  [source-fetch (source? . -> . path?)]))
+  [source-fetch (source? . -> . path?)]
+  [current-local-cache-directory (parameter/c path?)]))
 
 (require
  "../source.rkt"
@@ -32,6 +33,30 @@
 (define (reraise-fetch-exn src err)
   (define msg (format "failed to fetch source: ~s\n  reason: ~a" src (exn-message err)))
   (raise (make-exn:fail:fetch msg (current-continuation-marks) err)))
+
+;; ---------------------------------------------------------------------------------------
+;; source->local-cache-path
+;; --------
+
+;; source -> path
+(define (source->local-cache-path src)
+  (build-path (current-local-cache-directory)
+              (format "~a~a"
+                      (source-hash-string src)
+                      (source-extension src))))
+
+;; (current-cache-directory) : path
+(define current-local-cache-directory
+  (make-parameter (build-path "./musiclibrary-cache")))
+
+(module+ test
+  (parameterize ([current-local-cache-directory (build-path "./MLC")])
+    (for ([x (in-list `([,(fs "foo.png") "./MLC/~a.png"]
+                        [,(net "https://a.com/b/c.jpg") "./MLC/~a.jpg"]
+                        [,(fs "bar") "./MLC/~a"]))])
+      (match-define `[,src ,fmt] x)
+      (check-equal? (source->local-cache-path src)
+                    (build-path (format fmt (source-hash-string src)))))))
 
 ;; ---------------------------------------------------------------------------------------
 ;; source-feth
