@@ -11,6 +11,7 @@
  "./process-track.rkt"
  "./ffmpeg.rkt"
  "./source/cache.rkt"
+ "./source/fetch.rkt"
  "./utils.rkt"
  racket/cmdline
  racket/format
@@ -228,9 +229,9 @@
          (define sc*
            (if (source-in-cache? sc src)
              sc
-             (begin0
-                 (source-cache sc src)
-               (indicator-update! ind (message nc "Fetched: " (~a src))))))
+             (let ([fetched-path (source-fetch src)])
+               (indicator-update! ind (message nc "Fetched: " (~a src)))
+               (source-cache-add sc src fetched-path))))
          (channel-put recv-chan sc*)
          (mail-loop tq sc* nc)])))
 

@@ -261,14 +261,14 @@
 
   (with-test-musiclibrary
     (define fetched-srcs (set))
-    (define cache (hash))
+    (define cache empty-source-cache)
 
-    (define (fetch* src) ; src -> path
+    (define (fetch* src) ; source -> path
       (set! fetched-srcs (set-add fetched-srcs src))
       (source-fetch src))
 
-    (define (update* src) ; src -> cache
-      (set! cache (source-cache cache src #:fetch fetch*))
+    (define (update* src) ; source -> cache
+      (set! cache (source-cache-add cache src (fetch* src)))
       cache)
 
     (parameterize ([current-output-format 'mp3])

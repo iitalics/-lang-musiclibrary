@@ -6,8 +6,8 @@
  (contract-out
   [empty-source-cache source-cache?]
   [source-in-cache? (source-cache? source? . -> . any)]
-  [source-cache ((source-cache? source?) [#:fetch (source? . -> . path?)] . ->* . source-cache?)]
-  [source-cache-ref ((source-cache? source?) [(source? . -> . any)] . ->* . any)]))
+  [source-cache-ref ((source-cache? source?) [(source? . -> . any)] . ->* . any)]
+  [source-cache-add (source-cache? source? path? . -> . source-cache?)]))
 
 (require
  "../source.rkt"
@@ -40,16 +40,12 @@
 (define (source-cache-ref cache src [fail values])
   (hash-ref cache src (λ () (fail src))))
 
-;; (source-cache cache src #:fetch [fetch]) : source-cache
+;; (source-cache-ref cache src path) : source-cache
 ;; cache : source-cache
 ;; src : source
-;; fetch : [source -> path]
-(define (source-cache cache src #:fetch [fetch-fn source-fetch])
-  (if (source-in-cache? cache src)
-    (error 'source-cache
-           (format "BUG: doesn't realize this source was already cached: ~s" src))
-    (let ([resolved-path (fetch-fn src)])
-      (hash-set cache src resolved-path))))
+;; path : path
+(define (source-cache-add cache src path)
+  (hash-update cache src values path))
 
 ;; =======================================================================================
 
@@ -59,24 +55,12 @@
   (define lain-src (fs "../../example/lain.png"))
   (define audio-src (fs "../../example/test-audio.ogg"))
 
-  (define c0 empty-source-cache)
-  (check-equal? (source-cache-ref c0 lain-src -fail-) 'couldnt-find)
-  (check-equal? (source-cache-ref c0 audio-src -fail-) 'couldnt-find)
+  (define sc0 empty-source-cache)
+  (check-equal? (source-cache-ref sc0 lain-src -fail-) 'couldnt-find)
+  (check-equal? (source-cache-ref sc0 audio-src -fail-) 'couldnt-find)
 
-  ; NOTE: these do IO!
-  (define c1 (source-cache c0 lain-src))
-  (define c2 (source-cache c1 audio-src))
-  (check-equal? (source-cache-ref c1 lain-src -fail-)
-                (normalize-path "../../example/lain.png"))
-  (check-equal? (source-cache-ref c1 audio-src -fail-)
-                'couldnt-find)
-  (check-equal? (source-cache-ref c2 audio-src -fail-)
-                (normalize-path "../../example/test-audio.ogg"))
-
-  (for ([x (in-list `([,c0 ,lain-src  ,#f]
-                      [,c0 ,audio-src ,#f]
-                      [,c1 ,lain-src  ,#t]
-                      [,c1 ,audio-src ,#f]
-                      [,c2 ,lain-src  ,#t]
-                      [,c2 ,audio-src ,#t]))])
-    (check-equal? (source-in-cache? (car x) (cadr x)) (caddr x))))
+  (define sc1 (source-cache-add sc0 lain-src (build-path "A")))
+  (define sc2 (source-cache-add sc1 audio-src (build-path "B")))
+  (check-equal? (source-cache-ref sc1 lain-src -fail-) (build-path "A"))
+  (check-equal? (source-cache-ref sc1 audio-src -fail-) 'couldnt-find)
+  (check-equal? (source-cache-ref sc2 audio-src -fail-) (build-path "B")))
