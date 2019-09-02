@@ -18,11 +18,6 @@
 
 ;; ---------------------------------------------------------------------------------------
 
-; TODO:
-; ;; (current-cache-directory) : path
-; (define current-cache-directory
-;   (make-parameter (build-path "./musiclibrary-cache")))
-
 ;; source-cache ::= [hash source => path]
 (define (source-cache? h)
   (and (hash? h)
