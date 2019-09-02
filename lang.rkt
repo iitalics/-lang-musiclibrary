@@ -7,6 +7,7 @@
 (require
  musiclibrary
  "./private/entry-point.rkt"
+ syntax/wrap-modbeg
  (for-syntax
   racket/base
   syntax/parse))
@@ -22,78 +23,32 @@
   (syntax-parser
     [(_ {~literal #%prevent-module-begin-expansion} . r)
      #'(#%plain-module-begin . r)]
-    [(_ body ...)
+
+    [modbeg
+     #:with (_ tl ...) ((make-wrapping-module-begin #'(pick-out-album o)) #'modbeg)
      #'(#%plain-module-begin
-        (traverse-module () body ...))]))
+        (define o (box '()))
+        tl ...
+        (define the-library (reverse (unbox o)))
 
-;; (traverse-module [tmp-id ...] form ...)
-;;
-;; traverses every form, replacing toplevel expressions with (define tmp-id <expr>), and
-;; accumulates these tmp-id's. inserts (finish tmp-id ...) at the end of the module.
+        (module+ main
+          #%prevent-module-begin-expansion
+          (cli-main the-library))
 
-;; TODO: look into syntax-local-lift + wrapping-module-begin
+        (module+ music
+          #%prevent-module-begin-expansion
+          (provide (rename-out [the-library library]))))]))
 
-(begin-for-syntax
-  (define-syntax-class non-expression-form
-    [pattern ({~or {~literal define-values}
-                   {~literal define-syntaxes}
-                   {~literal module}
-                   {~literal module*}
-                   {~literal #%require}
-                   {~literal #%provide}}
-              . _)]))
+(define ((pick-out-album out-library) top-v)
+  (define maybe-album
+    (cond
+      [(void? top-v) #f]
+      [(track? top-v) (album/single top-v)]
+      [(album? top-v) top-v]
+      [else (error 'musiclibrary
+                   (~a "invalid toplevel expression.\n"
+                       "  expected: (or/c track? album? void?)\n"
+                       "  got: " top-v))]))
 
-(define-syntax traverse-module
-  (syntax-parser
-    [(_ acc)
-     #'(finish . acc)]
-
-    [(_ acc form0 . forms)
-     (syntax-parse (local-expand #'form0 'module #f)
-       ; splice (begin ..)'s
-       [({~literal begin} form* ...)
-        #'(traverse-module acc form* ... . forms)]
-
-       ; leave non-expressions alone
-       [form:non-expression-form
-        #'(begin
-            form
-            (traverse-module acc . forms))]
-
-       ; accumulate expressions
-       [expr
-        #:with [tmp-id*] (generate-temporaries #'[expr])
-        #:with acc* #'[tmp-id* . acc]
-        #'(begin
-            (define tmp-id* expr)
-            (traverse-module acc* . forms))])]))
-
-(define-syntax finish
-  (syntax-parser
-    [(_ id ...)
-     #'(begin
-         (define the-library
-           (pick-out-albums id ...))
-
-         (module+ main
-           #%prevent-module-begin-expansion
-           (cli-main the-library))
-
-         (module+ music
-           #%prevent-module-begin-expansion
-           (provide (rename-out [the-library library]))))]))
-
-;; any ... -> (listof album)
-(define (pick-out-albums . things)
-  (define maybe-albums
-    (for/list ([thing (in-list things)])
-      (cond
-        [(void? thing) #f]
-        [(track? thing) (album/single thing)]
-        [(album? thing) thing]
-        [else (error 'musiclibrary
-                     (~a "invalid toplevel expression.\n"
-                         "  expected: (or/c track? album? void?)\n"
-                         "  got: " thing))])))
-
-  (filter values maybe-albums))
+  (when maybe-album
+    (set-box! out-library (cons maybe-album (unbox out-library)))))
