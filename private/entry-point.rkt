@@ -17,6 +17,7 @@
  racket/cmdline
  racket/format
  racket/match
+ racket/set
  racket/string
  threading)
 
@@ -46,11 +47,6 @@
       (string-split _ "\n")
       prepend-lines/list
       (string-join _ "\n")))
-
-(define-syntax-rule (loop-forever body ...)
-  (let loop ()
-    (let () body ...)
-    (loop)))
 
 (module+ test
   (check-equal? (prepend-lines "* " "a\nb\nc")
@@ -133,158 +129,140 @@
 (define current-number-of-jobs
   (make-parameter 8))
 
-;; (current-skip-cached-tracks?) : boolean
-(define current-skip-cached-tracks?
+;; (current-skip-tracks?) : boolean
+(define current-skip-tracks?
   (make-parameter #t))
 
 ;; (generate-music-library library) : void
 ;; library : (listof album)
 (define (generate-music-library library)
 
-  (define mailbox
-    (make-channel))
-
-  (define-values [tracks n-cached]
-    (for*/fold ([tracks '()] [n-cached 0])
+  (define-values [all-tracks n-skipped]
+    (for*/fold ([tracks (set)] [n-skipped 0])
                ([a (in-list library)]
                 [t (in-album-tracks a)])
-      (if (and (current-skip-cached-tracks?)
+      (if (and (current-skip-tracks?)
                (track-already-exists? t))
-        (values tracks (add1 n-cached))
-        (values (cons t tracks) n-cached))))
+        (values tracks (add1 n-skipped))
+        (values (set-add tracks t) n-skipped))))
 
-  (define n-tracks
-    (length tracks))
+  ;; task = source | track
+  ;; result = `(ok any) | `(failed exn) | `(blocked source)
 
-  ;; ----
-  ;; worker
-
-  (define (worker-routine)
-    (define recv (make-channel))
-    (loop-forever
-     (channel-put mailbox `(wait ,recv))
-     (define trk (channel-get recv))
-     (let loop ([sc empty-source-cache])
-       (define result
-         (with-handlers ([exn:fail:source-cache-miss?
-                          (λ (e) (exn:fail:source-cache-miss-source e))]
-                         [exn:fail?
-                          (λ (e) e)])
-           (process-track trk #:cache sc)
-           #t))
-       (match result
-         [(? source? src)
-          (channel-put mailbox `(fetch ,src ,recv))
-          (loop (channel-get recv))]
-         [(? exn? e)
-          (channel-put mailbox `(fail ,trk ,e))]
-         [#t
-          (channel-put mailbox `(ok ,trk))]))))
-
-  ;; ----
-  ;; ping
-
-  (define (ping-routine)
-    (loop-forever
-     (sleep 1/3)
-     (channel-put mailbox 'ping)))
-
-  ;; ----
-  ;; mailbox loop
-
-  (define (message n-complete . stuff)
-    (format "(~a/~a) ~a"
-            n-complete
-            n-tracks
-            (apply ~a stuff)))
-
-  (define ind
-    (make-indicator (message 0 "Started.")))
-
-  ;; tq : (listof track)
+  ;; (work t sc) : result
+  ;; t : task
   ;; sc : source-cache
-  ;; nc : nat
-  (define (mail-loop tq sc nc)
-    (unless (>= nc n-tracks)
-      (match (channel-get mailbox)
-        ['ping
-         (indicator-spin! ind)
-         (mail-loop tq sc nc)]
+  (define (work t sc)
+    (with-handlers ([exn:fail:source-cache-miss?
+                     (λ (e)
+                       `(blocked ,(exn:fail:source-cache-miss-source e)))]
+                    [exn?
+                     (λ (e)
+                       `(failed ,e))])
+      `(ok ,(match t
+              [(? source? src) (source-fetch src)]
+              [(? track? trk) (process-track trk #:cache sc)]))))
 
-        [`(ok ,trk)
-         (define nc* (add1 nc))
-         (indicator-update! ind (message nc*
-                                         "Finished: "
-                                         (~s (track-title trk))))
-         (mail-loop tq sc nc*)]
+  ;; tq : [listof task]
+  ;; sc : source-cache
+  ;; dep : [hash source => [listof task]]
+  ;; pending : [set task]
+  (define (main-loop tq sc dep pending)
+    (cond
+      [(pair? tq)
+       (define task (car tq))
+       ; TODO: queue of "free worker threads"
+       (thread (λ ()
+                 (~> (work task sc)
+                     (append _ (list task))
+                     (thread-send main-thread _))))
+       (thread-send ui-thread `(started ,task))
+       (main-loop (cdr tq)
+                  sc
+                  dep
+                  (set-add pending task))]
 
-        [`(fail ,trk ,e)
-         (define nc* (add1 nc))
-         (indicator-clear! ind)
-         (displayln (exn-message e))
-         (indicator-update! ind (message nc*
-                                         "Failed: "
-                                         (~s (track-title trk))))
-         (mail-loop tq sc nc*)]
+      [(set-empty? pending)
+       (thread-send ui-thread 'goodbye)]
 
-        [`(wait ,recv-chan)
-         (define tq* (cond
-                       [(null? tq) '()]
-                       [else (channel-put recv-chan (car tq))
-                             (cdr tq)]))
-         (mail-loop tq* sc nc)]
+      ['()
+       (match (thread-receive)
+         [`(ok ,_ ,(? track? trk))
+          (thread-send ui-thread `(finished ,trk))
+          (main-loop tq
+                     sc
+                     dep
+                     (set-remove pending trk))]
 
-        [`(fetch ,src ,recv-chan)
-         (define sc*
-           (if (source-in-cache? sc src)
-             sc
-             (let ([fetched-path (source-fetch src)])
-               (indicator-update! ind (message nc "Fetched: " (~a src)))
-               (source-cache-add sc src fetched-path))))
-         (channel-put recv-chan sc*)
-         (mail-loop tq sc* nc)])))
+         [`(ok ,path ,(? source? src))
+          (main-loop (append (hash-ref dep src '()) tq)
+                     (source-cache-add sc src path)
+                     dep
+                     (set-remove pending src))]
 
-  (define (start-mail-loop)
-    (mail-loop tracks empty-source-cache 0))
+         [`(blocked ,src ,task)
+          (cond
+            [(source-in-cache? sc src)
+             (main-loop (cons task tq) sc dep pending)]
+            [else
+             (main-loop (if (set-member? pending src) tq (cons src tq))
+                        sc
+                        (hash-update dep src (λ (ts) (cons task ts)) '())
+                        (set-remove (set-add pending src) task))])]
 
-  ;; ---
-  ;; starts here
+         [`(failed ,e ,task)
+          (thread-send ui-thread `(error ,e))
+          (main-loop tq
+                     sc
+                     dep
+                     (set-remove pending task))])]))
 
-  (printf "* Processing ~a ~a\n"
-          n-tracks
-          (plural n-tracks "track"))
+  (define (ui-loop ind n)
+    (define (msg . args)
+      (string-append (format "(~a/~a) " n (set-count all-tracks))
+                     (apply format args)))
+    (match (thread-receive)
+      ['ping
+       (thread (λ ()
+                 (sleep 1/3)
+                 (with-handlers ([exn:fail:contract? void])
+                   (thread-send ui-thread 'ping))))
+       (indicator-spin! ind)
+       (ui-loop ind n)]
 
-  (unless (zero? n-cached)
-    (printf "* (skipping ~a ~a)\n"
-            n-cached
-            (plural n-cached "track")))
+      [`(started ,(? track? trk))
+       (ui-loop ind n)]
+
+      [`(started ,(? source? src))
+       (indicator-update! ind (msg "Fetching ~a" src))
+       (ui-loop ind n)]
+
+      [`(finished ,trk)
+       (indicator-update! ind (msg "Finished: ~s" (track-title trk)))
+       (ui-loop ind (add1 n))]
+
+      [`(error ,e)
+       (define 1st-line (car (string-split (exn-message e) "\n")))
+       (indicator-update! ind (msg "Error: ~a" 1st-line))
+       (ui-loop ind n)]
+
+      ['goodbye
+       (indicator-update! ind (msg "Finished."))]))
 
   (recursively-make-directory (current-output-directory))
 
-  (define worker-threads
-    (for/list ([i (in-range (current-number-of-jobs))])
-      (thread worker-routine)))
+  (define ui-thread
+    (thread (λ () (ui-loop (make-indicator "Started") 0))))
 
-  (define ping-thread
-    (thread ping-routine))
+  (define main-thread
+    (thread (λ () (main-loop (set->list all-tracks)
+                             empty-source-cache
+                             (hash)
+                             (set)))))
 
-  (define result
-    (with-handlers ([exn:fail? (λ (e) e)])
-      (start-mail-loop)
-      'ok))
-
-  (for ([thd (in-list (cons ping-thread worker-threads))])
-    (break-thread thd))
-
-  (match result
-    ['ok
-     (printf "\n* Completed\n")]
-    [(? exn? e)
-     (printf "\n* Failed: ")
-     (displayln (prepend-lines "* "
-                               (exn-message e)
-                               #:skip-first? #t))]))
-
+  (void (thread-send ui-thread 'ping)
+        (sync main-thread)
+        (sync ui-thread)))
 
 ;; ---------------------------------------------------------------------------------------
 ;; CLI entry point
@@ -324,7 +302,7 @@
 
    (("--force")
     "Don't skip generating tracks if the file already exists"
-    (current-skip-cached-tracks? #f))
+    (current-skip-tracks? #f))
 
    (("--ffmpeg")
     path

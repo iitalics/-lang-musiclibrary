@@ -198,7 +198,7 @@
           "\n  arguments:"
           (for/fold ([acc ""])
                     ([a (in-list args)])
-            (~a acc " " a))))
+            (~a acc " " (~s a)))))
 
     (raise (exn:fail:ffmpeg msg
                             (current-continuation-marks)
