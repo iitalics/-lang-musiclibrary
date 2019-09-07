@@ -22,7 +22,7 @@
                           #:format symbol?
                           #:cache source-cache?)
                          . ->* .
-                         (or/c ffmpeg-args? source?))])
+                         ffmpeg-args?)])
  ;; ---
  ;; macros
  define-metadata-key
@@ -44,7 +44,7 @@
              racket/syntax))
 
 (module+ test
-  (require rackunit))
+  (require rackunit racket/match))
 
 ;; ---------------------------------------------------------------------------------------
 ;; Structs / properties
@@ -69,36 +69,35 @@
                     ,(metadata-entry-value m-e))
             port))])
 
-;; (apply-metadata-entry m-e f-a #:format fmt #:cache cache) : (or ffmpeg-args source)
+;; (apply-metadata-entry m-e f-a #:format fmt #:cache cache) : ffmpeg-args
 ;; m-e : metadata-entry
 ;; f-a : ffmpeg-args
 ;; fmt : symbol
 ;; cache : source-cache
 ;; --
-;; returns a source if that source needs to be fetched in order for the metadata entry to
-;; be applied. otherwise returns the updated arguments, if the required sources (if any)
-;; are present in the cache 'spc'.
-(define (apply-metadata-entry m-e f-a #:format fmt #:cache cache)
+;; raises exn:fail:source-cache-miss if any required sources were not found
+;; otherwise returns the arguments updated with additional flags needed to apply
+;; the metadata.
+(define (apply-metadata-entry m-e f-a #:format fmt #:cache sc)
   (apply-metadata-key (metadata-entry-key m-e)
                       f-a
                       #:value (metadata-entry-value m-e)
                       #:format fmt
-                      #:cache cache))
+                      #:cache sc))
 
-;; (apply-metadata-key m-k f-a #:value val #:format fmt #:cache cache)
-;;   : (or ffmpeg-args source)
+;; (apply-metadata-key m-k f-a #:value val #:format fmt #:cache sc) : ffmpeg-args
 ;; m-k : metadata-key
 ;; f-a : ffmpeg-args
 ;; val : any
 ;; fmt : symbol
-;; cache : source-cache
-(define (apply-metadata-key m-k f-a #:value val #:format fmt #:cache spc)
+;; sc : source-cache
+(define (apply-metadata-key m-k f-a #:value val #:format fmt #:cache sc)
   (define proc (metadata-key-ref m-k))
   (cond
     [(procedure-arity-includes? proc 2)
-     (apply-metadata-entry (proc m-k val) f-a #:format fmt #:cache spc)]
+     (apply-metadata-entry (proc m-k val) f-a #:format fmt #:cache sc)]
     [(procedure-arity-includes? proc 5)
-     (proc m-k f-a fmt spc val)]
+     (proc m-k f-a fmt sc val)]
     [else
      (error 'apply-metadata-key
             (format "~a's prop:metadata-key value should be function of 2 or 5 arguments"
@@ -226,13 +225,10 @@
 
 ;; (cover-art: img-src) : metadata-entry
 ;; img-src : source
-(define-metadata-key (cover-art ffm-args fmt cache img-src)
-  (define img-path/src (source-cache-ref cache img-src))
-  (cond [(path? img-path/src)
-         (ffmpeg-args-add-input ffm-args
-                                img-path/src
-                                '())]
-        [else img-path/src]))
+(define-metadata-key (cover-art ffm-args _fmt cache img-src)
+  (ffmpeg-args-add-input ffm-args
+                         (source-cache-ref cache img-src)
+                         '()))
 
 ;; ==========
 
@@ -267,8 +263,12 @@
                                       #:format 'ogg)
                 (ffmpeg-args-add-input args0 (build-path "cache/a.png") '()))
 
-  (check-equal? (apply-metadata-entry (cover-art: (fs "b.png"))
-                                      args0
-                                      #:cache cache0
-                                      #:format 'ogg)
-                (fs "b.png")))
+  (check-exn (match-lambda
+               [(exn:fail:source-cache-miss _ _ src)
+                (equal? src (fs "b.png"))]
+               [_ #f])
+             (λ ()
+               (apply-metadata-entry (cover-art: (fs "b.png"))
+                                     args0
+                                     #:cache cache0
+                                     #:format 'ogg))))

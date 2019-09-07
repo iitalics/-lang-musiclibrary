@@ -10,6 +10,7 @@
  "./tracks-albums.rkt"
  "./process-track.rkt"
  "./ffmpeg.rkt"
+ "./source.rkt"
  "./source/cache.rkt"
  "./source/fetch.rkt"
  "./utils.rkt"
@@ -23,7 +24,6 @@
   (require
    rackunit
    racket/port
-   "./source.rkt"
    "./metadata.rkt"
    "./test-utils.rkt"))
 
@@ -161,16 +161,25 @@
 
   (define (worker-routine)
     (define recv (make-channel))
-    (define (update-cache src)
-      (channel-put mailbox `(fetch ,src ,recv))
-      (channel-get recv))
     (loop-forever
      (channel-put mailbox `(wait ,recv))
      (define trk (channel-get recv))
-     (with-handlers ([exn:fail? (λ (e)
-                                  (channel-put mailbox `(fail ,trk ,e)))])
-       (process-track trk update-cache)
-       (channel-put mailbox `(ok ,trk)))))
+     (let loop ([sc (hash)])
+       (define result
+         (with-handlers ([exn:fail:source-cache-miss?
+                          (λ (e) (exn:fail:source-cache-miss-source e))]
+                         [exn:fail?
+                          (λ (e) e)])
+           (process-track trk #:cache sc)
+           #t))
+       (match result
+         [(? source? src)
+          (channel-put mailbox `(fetch ,src ,recv))
+          (loop (channel-get recv))]
+         [(? exn? e)
+          (channel-put mailbox `(fail ,trk ,e))]
+         [#t
+          (channel-put mailbox `(ok ,trk))]))))
 
   ;; ----
   ;; ping

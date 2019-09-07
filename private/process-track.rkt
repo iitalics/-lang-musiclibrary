@@ -13,7 +13,7 @@
  ; process-track
  (contract-out
   [track-already-exists? (track? . -> . boolean?)]
-  [process-track (track? (source? . -> . source-cache?) . -> . void?)]))
+  [process-track (track? #:cache source-cache? . -> . void?)]))
 
 (require
  "./tracks-albums.rkt"
@@ -30,7 +30,8 @@
   (require
    rackunit
    racket/set
-   "./test-utils.rkt"))
+   "./test-utils.rkt"
+   (submod "./source/cache.rkt" test-utils)))
 
 ;; ---------------------------------------------------------------------------------------
 ;; Configuration
@@ -62,27 +63,24 @@
 (define (track-already-exists? trk)
   (file-exists? (track-full-output-path trk)))
 
-;; (process-track trk update-cache) : void
+;; (process-track trk #:cache cache) : void
 ;; trk : track
-;; update-cache : [source -> cache]
+;; cache : source-cache
 ;; --
 ;; update-cache should return a cache which contains the given source.
 ;; raises exn:fail:ffmpeg if process fails.
-(define (process-track trk update-cache)
-  (let loop ([cache (hash)])
-    (match (track->ffmpeg-args trk #:cache cache)
-      [(? source? src)
-       (loop (update-cache src))]
+;; raises exn:fail:source-cache-miss if any required sources were not found
+(define (process-track trk #:cache cache)
+  (define-values [_stdout _stderr]
+    (exec-ffmpeg (track->ffmpeg-args trk #:cache cache)))
+  (void))
 
-      [(? ffmpeg-args? args)
-       (define-values [_stdout _stderr] (exec-ffmpeg args))
-       (void)])))
-
-;; (track->ffmpeg-args trk #:cache cache) : (or ffmpeg-args source)
+;; (track->ffmpeg-args trk #:cache sc) : ffmpeg-args
 ;; trk : track
-;; cache : source-paths
-(define (track->ffmpeg-args trk #:cache cache)
-
+;; sc : source-paths
+;; --
+;; raises exn:fail:source-cache-miss if any required sources were not found
+(define (track->ffmpeg-args trk #:cache sc)
   (define-values [a-src a-flags]
     (match (track-audio-source trk)
       [(? audio-clip? c)
@@ -94,36 +92,20 @@
                       (if to
                         `("-to" ,(~r (/ to 1000)))
                         '())))]
-
       [(? source? src)
        (values src '())]))
 
-  (match (source-cache-ref cache a-src)
-    [(? source? a-src)
-     ; source not in cache, so return early
-     a-src]
+  (define a-path
+    (source-cache-ref sc a-src))
 
-    [(? path? a-path)
-     (define args0
-       (~> (track-full-output-path trk)
-           make-ffmpeg-args
-           (ffmpeg-args-add-input _ a-path a-flags)))
-
-     (define-values [args req-src]
-       (for/fold ([args args0]
-                  [_req-src #f])
-                 ([m-e (in-track-metadata trk)])
-         #:break (not args)
-         (match (apply-metadata-entry m-e
-                                      args
-                                      #:format (current-output-format)
-                                      #:cache cache)
-           [(? source? req-src)
-            (values #f req-src)]
-           [(? ffmpeg-args? args*)
-            (values args* #f)])))
-
-     (or args req-src)]))
+  (for/fold ([args (~> (track-full-output-path trk)
+                       make-ffmpeg-args
+                       (ffmpeg-args-add-input _ a-path a-flags))])
+            ([m-e (in-track-metadata trk)])
+    (apply-metadata-entry m-e
+                          args
+                          #:format (current-output-format)
+                          #:cache sc)))
 
 ;; (track-full-output-path trk) : path
 ;; trk : track
@@ -177,10 +159,10 @@
   ;; --
   ;; ffmpeg-args for tracks with simple metadata & source
 
-  (check-equal?
-   (parameterize ([current-output-format 'mp3])
-     (track->ffmpeg-args test-track #:cache (hash)))
-   test-audio-src)
+  (check-exn (cache-miss= test-audio-src)
+             (λ ()
+               (parameterize ([current-output-format 'mp3])
+                 (track->ffmpeg-args test-track #:cache (hash)))))
 
   (check-equal?
    (parameterize ([current-output-format 'mp3])
@@ -216,10 +198,12 @@
        (ffmpeg-args-add-input test-image-path '())
        (ffmpeg-args-set-metadata _ 'track "8")))
 
-  (check-equal?
-   (parameterize ([current-output-format 'ogg])
-     (track->ffmpeg-args test-track+cover #:cache (hash test-audio-src test-audio-path)))
-   test-image-src)
+  (check-exn (cache-miss= test-image-src)
+             (λ ()
+               (parameterize ([current-output-format 'mp3])
+                 (track->ffmpeg-args test-track+cover
+                                     #:cache
+                                     (hash test-audio-src test-audio-path)))))
 
   ;; --
   ;; ffmpeg-args for tracks with clipped sources
@@ -234,10 +218,10 @@
            #:output "test-audio"
            (title: "Foo")))
 
-  (check-equal?
-   (parameterize ([current-output-format 'ogg])
-     (track->ffmpeg-args test-track-clipped #:cache (hash)))
-   test-audio-src)
+  (check-exn (cache-miss= test-audio-src)
+             (λ ()
+               (parameterize ([current-output-format 'ogg])
+                 (track->ffmpeg-args test-track-clipped #:cache (hash)))))
 
   (check-equal?
    (parameterize ([current-output-format 'ogg])
@@ -258,26 +242,13 @@
 
   (check-pred file-exists? test-audio-path
               "example audio file (test-audio.ogg) must exist")
+  (check-pred file-exists? test-image-path
+              "example image file (lain.png) must exist")
 
   (with-test-musiclibrary
-    (define fetched-srcs (set))
-    (define cache empty-source-cache)
-
-    (define (fetch* src) ; source -> path
-      (set! fetched-srcs (set-add fetched-srcs src))
-      (source-fetch src))
-
-    (define (update* src) ; source -> cache
-      (set! cache (source-cache-add cache src (fetch* src)))
-      cache)
-
     (parameterize ([current-output-format 'mp3])
-      (process-track test-track+cover update*))
+      (process-track test-track+cover #:cache cache-full))
 
     ; test it generated a file
     (check-equal? (directory-list (current-output-directory))
-                  (list (build-path "test-audio.mp3")))
-
-    ; test the fetch callback
-    (check-equal? fetched-srcs
-                  (set test-audio-src test-image-src))))
+                  (list (build-path "test-audio.mp3")))))
