@@ -146,6 +146,9 @@
         (values tracks (add1 n-skipped))
         (values (set-add tracks t) n-skipped))))
 
+  (unless (zero? n-skipped)
+    (printf "* Skipping ~a ~a.\n" n-skipped (plural n-skipped "track")))
+
   ;; task = source | track
   ;; result = `(ok any) | `(failed exn) | `(blocked source)
 
@@ -217,7 +220,7 @@
                      dep
                      (set-remove pending task))])]))
 
-  (define (ui-loop ind n)
+  (define (ui-loop ind n errs)
     (define (msg . args)
       (string-append (format "(~a/~a) " n (set-count all-tracks))
                      (apply format args)))
@@ -228,31 +231,38 @@
                  (with-handlers ([exn:fail:contract? void])
                    (thread-send ui-thread 'ping))))
        (indicator-spin! ind)
-       (ui-loop ind n)]
+       (ui-loop ind n errs)]
 
       [`(started ,(? track? trk))
-       (ui-loop ind n)]
+       (ui-loop ind n errs)]
 
       [`(started ,(? source? src))
        (indicator-update! ind (msg "Fetching ~a" src))
-       (ui-loop ind n)]
+       (ui-loop ind n errs)]
 
       [`(finished ,trk)
        (indicator-update! ind (msg "Finished: ~s" (track-title trk)))
-       (ui-loop ind (add1 n))]
+       (ui-loop ind (add1 n) errs)]
 
       [`(error ,e)
        (define 1st-line (car (string-split (exn-message e) "\n")))
        (indicator-update! ind (msg "Error: ~a" 1st-line))
-       (ui-loop ind n)]
+       (ui-loop ind n (cons e errs))]
 
       ['goodbye
-       (indicator-update! ind (msg "Finished."))]))
+       (indicator-update! ind (msg "Finished."))
+       (unless (null? errs)
+         (printf "\n=====\nSome errors occured while processing:\n")
+         (for ([e (in-list errs)])
+           (printf "~a\n"
+                   (prepend-lines "> " (exn-message e)))))]))
 
   (recursively-make-directory (current-output-directory))
 
   (define ui-thread
-    (thread (λ () (ui-loop (make-indicator "Started") 0))))
+    (thread (λ () (ui-loop (make-indicator "Started")
+                           0
+                           '()))))
 
   (define main-thread
     (thread (λ () (main-loop (set->list all-tracks)
