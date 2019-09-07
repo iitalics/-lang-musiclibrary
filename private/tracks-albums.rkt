@@ -64,7 +64,7 @@
 
 ;; audio-source : audio-source
 ;; output-path : path
-;; meta : (hasheq metadata-key => string)
+;; meta : (hasheq metadata-key => any)
 (struct track [audio-source
                output-path
                meta]
@@ -74,7 +74,7 @@
   [(define (write-proc t port mode)
      (fprintf port "#<track:~s>" (track-title t)))])
 
-;; track metadata-key -> (or string #f)
+;; track metadata-key -> (or any #f)
 (define (track-metadata trk k)
   (hash-ref (track-meta trk) k #f))
 
@@ -156,7 +156,7 @@
 ;; Track helpers
 ;; --------------------
 
-;; [hasheq metadata-key => string] track -> track
+;; [hasheq metadata-key => any] track -> track
 (define (add-metas-to-track meta trk)
   (struct-copy track trk
                [meta (hash-union (track-meta trk) meta
@@ -204,7 +204,7 @@
 ;; --------------------
 
 ;; tracks : [listof track]
-;; meta : [hasheq metadata-key => string]
+;; meta : [hasheq metadata-key => any]
 (struct album [tracks meta]
   #:transparent
   #:extra-constructor-name make-album
