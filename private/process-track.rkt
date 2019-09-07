@@ -162,7 +162,7 @@
   (check-exn (cache-miss= test-audio-src)
              (λ ()
                (parameterize ([current-output-format 'mp3])
-                 (track->ffmpeg-args test-track #:cache (hash)))))
+                 (track->ffmpeg-args test-track #:cache empty-source-cache))))
 
   (check-equal?
    (parameterize ([current-output-format 'mp3])
@@ -221,7 +221,7 @@
   (check-exn (cache-miss= test-audio-src)
              (λ ()
                (parameterize ([current-output-format 'ogg])
-                 (track->ffmpeg-args test-track-clipped #:cache (hash)))))
+                 (track->ffmpeg-args test-track-clipped #:cache empty-source-cache))))
 
   (check-equal?
    (parameterize ([current-output-format 'ogg])

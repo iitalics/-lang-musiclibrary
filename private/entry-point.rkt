@@ -164,7 +164,7 @@
     (loop-forever
      (channel-put mailbox `(wait ,recv))
      (define trk (channel-get recv))
-     (let loop ([sc (hash)])
+     (let loop ([sc empty-source-cache])
        (define result
          (with-handlers ([exn:fail:source-cache-miss?
                           (λ (e) (exn:fail:source-cache-miss-source e))]
@@ -245,7 +245,7 @@
          (mail-loop tq sc* nc)])))
 
   (define (start-mail-loop)
-    (mail-loop tracks (hash) 0))
+    (mail-loop tracks empty-source-cache 0))
 
   ;; ---
   ;; starts here
